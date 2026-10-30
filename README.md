@@ -3,7 +3,7 @@
   <h1>Berserker RGB</h1>
   <p><strong>Contrôle RGB per-touche et configuration du clavier Berserker BYGG.</strong></p>
   <p>
-    <img alt="Version" src="https://img.shields.io/badge/version-1.1.7--alpha-orange">
+    <img alt="Version" src="https://img.shields.io/badge/version-1.2.0--alpha-orange">
     <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
     <img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black">
     <img alt="Rust" src="https://img.shields.io/badge/Rust-1.95%2B-000000?logo=rust">
@@ -17,7 +17,7 @@
   </p>
 </div>
 
-> **Statut : alpha (v1.1.7).** Application testée sur le clavier Berserker BYGG
+> **Statut : alpha (v1.2.0).** Application testée sur le clavier Berserker BYGG
 > `320F:5041` (EVision V2, 126 zones LED) sous Windows 10/11 x86_64. Le binaire
 > Linux x86_64 est fourni compilé ; valider l'accès hidraw et le rendu sur votre
 > distribution.
@@ -92,11 +92,25 @@ configuration est créé avant la première modification.
 - Aucune macro n'est envoyée au clavier : l'application ne contient pas de
   commande d'upload de macros.
 
+### Détection multi-appareils
+
+- Page **Claviers** : détection HID en lecture seule des appareils suivants :
+  - Berserker BYGG TKL d'usine (EVision V2, `320F:5041`) ;
+  - autre modèle EVision (`320F`, PID non répertorié) ;
+  - bootloader ISP Sonix (`0C45`, PIDs SN32F2xx/SN34F2xx) ;
+  - interface brute QMK/VIA d'un clavier reflashé (usage `FF60:0061`).
+- VID/PID, usage HID, nom produit, chemin et puce Sonix éventuelle sont
+  affichés ; les informations sont copiables.
+- L'édition RGB reste centrée sur le Berserker BYGG TKL. Les autres appareils
+  sont détectés mais non édités.
+- Aucun flash n'est effectué par l'application. SonixFlasherC est un outil
+  séparé fourni par le fabricant : ni inclus, ni lancé ici.
+
 ### Interface et tooling
 
 - Interface native egui, une seule fenêtre, sans console.
 - Windows : rendu Direct3D 12 (GPU ou WARP), CRT statique, aucun runtime à
-  installer. Icône, version de fichier 1.1.7.0 et manifeste embarqués
+  installer. Icône, version de fichier 1.2.0.0 et manifeste embarqués
   (PerMonitorV2, asInvoker, long paths).
 - Linux : rendu OpenGL 2.0 via X11/XWayland.
 - CLI de diagnostic et de configuration pour les scripts.
@@ -120,8 +134,10 @@ configuration est créé avant la première modification.
 | Windows 10/11 x86_64 | `berserker-rgb.exe` autonome | Direct3D 12 (GPU ou WARP) |
 | Linux x86_64 | AppImage ou `tar.gz` | X11/XWayland + OpenGL 2.0 |
 
-Clavier pris en charge : **Berserker BYGG, USB `320F:5041`**, firmware EVision
-V2. Les autres modèles ne sont pas pris en charge par cette version.
+Clavier RGB pris en charge : **Berserker BYGG, USB `320F:5041`**, firmware
+EVision V2. Les autres appareils EVision, les claviers QMK/VIA et les
+bootloaders Sonix sont détectés en lecture seule, mais leur édition RGB n'est
+pas implémentée.
 
 ## Téléchargement et lancement
 
@@ -255,6 +271,7 @@ cargo build --release
 
 ```text
 src/main.rs        interface egui, profils, effets, macros, CLI
+src/devices.rs     détection lecture seule EVision / Sonix ISP / QMK-VIA
 src/protocol.rs    protocole EVision V2 (configuration et frames directes)
 src/layout.rs      disposition TKL AZERTY et mapping des 126 zones
 src/linux_hid.rs   accès hidraw sous Linux
@@ -274,7 +291,11 @@ packaging/         règle udev et lanceur Linux
 
 ## Limites connues
 
-- Application en alpha ; le clavier cible est le `320F:5041`.
+- Application en alpha ; le clavier cible de l'édition RGB est le `320F:5041`.
+- Les autres modèles EVision et les claviers QMK/VIA sont détectés en lecture
+  seule ; leurs protocoles et layouts RGB ne sont pas implémentés.
+- Aucun flash de firmware n'est proposé. SonixFlasherC n'est ni inclus ni
+  lancé par l'application.
 - Les calques d'effets sont animés par l'application sur le PC. En fenêtre
   réduite, un thread d'arrière-plan maintient l'animation ; à la fermeture, la
   dernière image est figée en couleurs per-touche et le rendu animé reprend au
@@ -303,11 +324,14 @@ Projet indépendant, non affilié au fabricant du clavier.
 editing, 10 full profiles, 12 firmware effects plus a custom mode, up to 8
 PC-side stacked effects over selected keys, polling, debounce, game mode,
 arrow mode and anti-ghosting settings, a local macro file library, undo/redo
-and CLI diagnostics.
+and CLI diagnostics. A read-only **Devices** page detects factory EVision,
+other EVision models, Sonix ISP bootloaders and QMK/VIA interfaces.
 
 Windows builds use Direct3D 12 (GPU or WARP) with a static CRT and no external
 DLLs. Linux builds use X11/XWayland and OpenGL 2.0. The app only sends EVision
 V2 configuration commands — it never flashes or modifies the keyboard firmware.
+SonixFlasherC is a separate manufacturer tool and is not included or launched
+by this app.
 
 Download binaries from the [Releases](../../releases/latest) page. Build with
 Rust 1.95+ using `cargo build --release`. MIT licensed.

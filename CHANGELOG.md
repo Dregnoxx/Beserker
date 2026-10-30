@@ -3,6 +3,22 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.2.0 — 2026-10-30
+
+### Ajouté
+
+- Page **Claviers** : détection HID en lecture seule des interfaces EVision
+  (Berserker d'usine ou autre PID), bootloader Sonix ISP et QMK/VIA.
+- Affichage VID/PID, usage, produit, chemin et puce Sonix ; copie des infos.
+- Message de diagnostic adapté quand aucun contrôleur EVision TKL n'est
+  disponible (clavier QMK, bootloader, autre modèle).
+
+### Modifié
+
+- L'éditeur RGB et le layout restent centrés sur le Berserker BYGG TKL.
+- Aucun flash de firmware n'est implémenté ; SonixFlasherC reste un outil
+  séparé, non inclus et non lancé.
+
 ## 1.1.7 — 2026-10-30
 
 ### Corrigé

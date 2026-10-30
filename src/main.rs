@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod devices;
 mod layout;
 #[cfg(target_os = "linux")]
 mod linux_hid;
@@ -153,6 +154,7 @@ const HISTORY_LIMIT: usize = 40;
 enum Page {
     Lighting,
     Effects,
+    Devices,
     Macros,
     Settings,
 }
@@ -161,6 +163,7 @@ impl Page {
     fn from_env() -> Self {
         match std::env::var("BERSERKER_PAGE").ok().as_deref() {
             Some("effects") | Some("effets") => Self::Effects,
+            Some("devices") | Some("claviers") | Some("appareils") => Self::Devices,
             Some("macros") => Self::Macros,
             Some("settings") | Some("reglages") => Self::Settings,
             _ => Self::Lighting,
@@ -1719,6 +1722,7 @@ struct App {
     window_hidden: bool,
     hidden_worker: Option<HiddenWorker>,
     close_guard_done: bool,
+    devices: Vec<devices::DeviceInfo>,
     polling_index: usize,
     debounce_index: usize,
     win_lock: bool,
@@ -1761,6 +1765,7 @@ impl App {
             window_hidden: false,
             hidden_worker: None,
             close_guard_done: false,
+            devices: devices::scan(),
             polling_index: 0,
             debounce_index: 0,
             win_lock: false,
@@ -1784,13 +1789,16 @@ impl App {
         match Controller::open() {
             Ok(controller) => {
                 app.controller = Some(controller);
+                app.devices = devices::scan();
                 app.restore_profile(true);
                 if !app.status_error {
                     app.status = format!("Clavier connecté · {}", app.status);
                 }
             }
             Err(err) => {
-                app.status = format!("Clavier introuvable : {err:#}");
+                app.devices = devices::scan();
+                app.status = devices::detection_hint(&app.devices)
+                    .unwrap_or_else(|| format!("Clavier introuvable : {err:#}"));
                 app.status_error = true;
             }
         }
@@ -2923,15 +2931,19 @@ impl App {
 
     fn reconnect(&mut self) {
         self.stop_live();
+        self.devices = devices::scan();
         match Controller::open() {
             Ok(controller) => {
                 self.controller = Some(controller);
+                self.devices = devices::scan();
                 self.restore_profile(true);
                 self.status = "Clavier reconnecté.".to_string();
                 self.status_error = false;
             }
             Err(err) => {
-                self.status = format!("Reconnexion impossible : {err:#}");
+                self.status = devices::detection_hint(&self.devices)
+                    .map(|hint| format!("{hint} ({err:#})"))
+                    .unwrap_or_else(|| format!("Reconnexion impossible : {err:#}"));
                 self.status_error = true;
             }
         }
@@ -3017,6 +3029,9 @@ impl App {
         if menu_item(ui, "Effets", self.page == Page::Effects, true) {
             self.page = Page::Effects;
         }
+        if menu_item(ui, "Claviers", self.page == Page::Devices, true) {
+            self.page = Page::Devices;
+        }
         menu_item(ui, "Touches", false, false);
         if menu_item(ui, "Macros", self.page == Page::Macros, true) {
             self.page = Page::Macros;
@@ -3047,7 +3062,7 @@ impl App {
             });
         ui.add_space(8.0);
         ui.label(
-            RichText::new("EVision V2 · 126 zones")
+            RichText::new("Berserker BYGG TKL · 126 zones")
                 .size(9.5)
                 .color(Color32::from_rgb(110, 110, 110)),
         );
@@ -3884,6 +3899,180 @@ impl App {
                 self.status_error = true;
             }
         }
+    }
+
+    fn devices_page(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.label(
+                            RichText::new("Claviers détectés")
+                                .size(20.0)
+                                .strong()
+                                .color(Color32::from_rgb(30, 30, 30)),
+                        );
+                        ui.label(
+                            RichText::new(
+                                "Détection HID en lecture seule : EVision, bootloader Sonix et interface QMK/VIA.",
+                            )
+                            .size(11.0)
+                            .color(Color32::from_rgb(110, 110, 110)),
+                        );
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button("Reconnecter").clicked() {
+                            self.reconnect();
+                        }
+                        if ui.button("Actualiser").clicked() {
+                            self.devices = devices::scan();
+                            self.status = format!(
+                                "{} appareil(s) HID compatible(s) détecté(s).",
+                                self.devices.len()
+                            );
+                            self.status_error = false;
+                        }
+                    });
+                });
+
+                ui.add_space(10.0);
+
+                egui::Frame::new()
+                    .fill(CARD)
+                    .corner_radius(10)
+                    .stroke(Stroke::new(1.0, Color32::from_rgb(220, 220, 220)))
+                    .inner_margin(egui::Margin::same(14))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new("Éditeur RGB")
+                                .size(13.0)
+                                .strong()
+                                .color(Color32::from_rgb(45, 45, 45)),
+                        );
+                        ui.label(
+                            RichText::new(
+                                "Berserker BYGG TKL · EVision V2 · 126 zones · layout TKL AZERTY ISO",
+                            )
+                            .size(11.0)
+                            .color(Color32::from_rgb(80, 80, 80)),
+                        );
+                        ui.label(
+                            RichText::new(if self.controller.is_some() {
+                                "Connecté : édition per-touche, profils et effets actifs."
+                            } else {
+                                "Hors ligne : l'édition EVision attend un Berserker d'usine connecté."
+                            })
+                            .size(10.5)
+                            .color(if self.controller.is_some() { OK } else { MUTED }),
+                        );
+                    });
+
+                ui.add_space(10.0);
+
+                if self.devices.is_empty() {
+                    egui::Frame::new()
+                        .fill(CARD)
+                        .corner_radius(10)
+                        .stroke(Stroke::new(1.0, Color32::from_rgb(220, 220, 220)))
+                        .inner_margin(egui::Margin::same(14))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new("Aucun appareil EVision, Sonix ou QMK/VIA détecté.")
+                                    .size(12.0)
+                                    .color(Color32::from_rgb(70, 70, 70)),
+                            );
+                            ui.label(
+                                RichText::new(
+                                    "Vérifier le câble, les permissions hidraw et rebrancher le clavier.",
+                                )
+                                .size(10.5)
+                                .color(MUTED),
+                            );
+                        });
+                }
+
+                for device in self.devices.clone() {
+                    let accent = match device.kind {
+                        devices::DeviceKind::EvisionTkl => OK,
+                        devices::DeviceKind::EvisionOther => ACCENT,
+                        devices::DeviceKind::SonixBootloader => Color32::from_rgb(235, 150, 60),
+                        devices::DeviceKind::QmkRawHid => Color32::from_rgb(90, 150, 230),
+                    };
+                    egui::Frame::new()
+                        .fill(CARD)
+                        .corner_radius(8)
+                        .stroke(Stroke::new(1.0, Color32::from_rgb(220, 220, 220)))
+                        .inner_margin(egui::Margin::same(12))
+                        .show(ui, |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label(
+                                    RichText::new(device.kind.title())
+                                        .size(12.5)
+                                        .strong()
+                                        .color(Color32::from_rgb(45, 45, 45)),
+                                );
+                                ui.label(
+                                    RichText::new(device.identity()).size(10.5).color(accent),
+                                );
+                                if device.kind == devices::DeviceKind::EvisionTkl
+                                    && self.controller.is_some()
+                                {
+                                    ui.label(
+                                        RichText::new("● actif").size(10.0).color(OK),
+                                    );
+                                }
+                            });
+                            ui.label(
+                                RichText::new(device.kind.detail())
+                                    .size(10.5)
+                                    .color(Color32::from_rgb(90, 90, 90)),
+                            );
+                            let mut meta = format!(
+                                "usage {:04X}:{:04X}",
+                                device.usage_page, device.usage
+                            );
+                            if let Some(product) = &device.product {
+                                meta.push_str(&format!(" · {product}"));
+                            }
+                            if let Some(chip) = device.sonix_chip() {
+                                meta.push_str(&format!(" · {chip}"));
+                            }
+                            ui.label(RichText::new(meta).size(9.5).color(MUTED));
+                            ui.horizontal(|ui| {
+                                if !device.path.is_empty() {
+                                    ui.label(RichText::new(&device.path).size(9.0).color(MUTED));
+                                }
+                                if ui.button("Copier les infos").clicked() {
+                                    ui.ctx().copy_text(device.summary());
+                                }
+                            });
+                        });
+                    ui.add_space(6.0);
+                }
+
+                ui.add_space(6.0);
+                egui::Frame::new()
+                    .fill(Color32::from_rgb(246, 246, 246))
+                    .corner_radius(6)
+                    .inner_margin(egui::Margin::same(10))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new(
+                                "Aucun flash n'est effectué par cette application. SonixFlasherC est un outil séparé fourni par le fabricant : il n'est ni inclus, ni lancé ici. Les claviers reflashés QMK/VIA et les modèles EVision non répertoriés sont détectés en lecture seule.",
+                            )
+                            .size(10.0)
+                            .color(Color32::from_rgb(90, 90, 90)),
+                        );
+                    });
+
+                ui.add_space(6.0);
+                ui.label(
+                    RichText::new(&self.status)
+                        .size(11.0)
+                        .color(if self.status_error { ERR } else { OK }),
+                );
+            });
     }
 
     fn macros_page(&mut self, ui: &mut egui::Ui) {
@@ -5107,6 +5296,7 @@ impl eframe::App for App {
             .show(ui, |ui| match self.page {
                 Page::Lighting => self.central(ui),
                 Page::Effects => self.effects_page(ui),
+                Page::Devices => self.devices_page(ui),
                 Page::Macros => self.macros_page(ui),
                 Page::Settings => self.settings_page(ui),
             });

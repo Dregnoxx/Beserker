@@ -11,8 +11,8 @@ fn main() {
         resource.set("CompanyName", "ByGG");
         resource.set("LegalCopyright", "Copyright (c) 2026 ByGG");
         resource.set("OriginalFilename", "berserker-rgb.exe");
-        resource.set("FileVersion", "1.1.7.0");
-        resource.set("ProductVersion", "1.1.7.0");
+        resource.set("FileVersion", "1.2.0.0");
+        resource.set("ProductVersion", "1.2.0.0");
         resource.set(
             "Comments",
             "Contrôle RGB per-touche pour clavier Berserker BYGG (EVision V2)",
