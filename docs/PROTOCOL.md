@@ -118,6 +118,11 @@ envoyée avec la commande `0x12`, offset `0`, en blocs de 56 octets, puis
 terminée par `0x13`. Elle n'est pas enregistrée dans le firmware : à la fin ou
 à la fermeture de l'application, le clavier revient à l'effet stocké.
 
+Lorsque la fenêtre est réduite ou que l'application se ferme, une image
+statique des calques peut être publiée en couleurs per-touche (jeu 0) avant
+l'arrêt des frames. Elle sert de secours visuel et n'est pas enregistrée dans
+le profil local, qui conserve les couleurs de base.
+
 ## Persistance locale
 
 Les profils ne sont pas stockés dans le clavier au-delà du jeu 0 ; ils sont
