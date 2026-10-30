@@ -3,7 +3,7 @@
   <h1>Berserker RGB</h1>
   <p><strong>Contrôle RGB per-touche et configuration du clavier Berserker BYGG.</strong></p>
   <p>
-    <img alt="Version" src="https://img.shields.io/badge/version-1.3.0--alpha-orange">
+    <img alt="Version" src="https://img.shields.io/badge/version-1.3.1--alpha-orange">
     <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
     <img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black">
     <img alt="Rust" src="https://img.shields.io/badge/Rust-1.95%2B-000000?logo=rust">
@@ -17,7 +17,7 @@
   </p>
 </div>
 
-> **Statut : alpha (v1.3.0).** Application testée sur le clavier Berserker BYGG
+> **Statut : alpha (v1.3.1).** Application testée sur le clavier Berserker BYGG
 > `320F:5041` (EVision V2, 126 zones LED) sous Windows 10/11 x86_64. Le binaire
 > Linux x86_64 est fourni compilé ; valider l'accès hidraw et le rendu sur votre
 > distribution.
@@ -113,7 +113,7 @@ configuration est créé avant la première modification.
 
 - Interface native egui, une seule fenêtre, sans console.
 - Windows : rendu Direct3D 12 (GPU ou WARP), CRT statique, aucun runtime à
-  installer. Icône, version de fichier 1.3.0.0 et manifeste embarqués
+  installer. Icône, version de fichier 1.3.1.0 et manifeste embarqués
   (PerMonitorV2, asInvoker, long paths).
 - Linux : rendu OpenGL 2.0 via X11/XWayland.
 - CLI de diagnostic et de configuration pour les scripts.

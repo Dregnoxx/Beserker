@@ -1804,9 +1804,13 @@ impl App {
             }
             Err(err) => {
                 app.devices = devices::scan();
-                app.status = devices::detection_hint(&app.devices)
-                    .unwrap_or_else(|| format!("Clavier introuvable : {err:#}"));
-                app.status_error = true;
+                if let Some(hint) = devices::detection_hint(&app.devices) {
+                    app.status = hint;
+                    app.status_error = false;
+                } else {
+                    app.status = format!("Clavier introuvable : {err:#}");
+                    app.status_error = true;
+                }
             }
         }
         app
@@ -2950,10 +2954,13 @@ impl App {
                 self.status_error = false;
             }
             Err(err) => {
-                self.status = devices::detection_hint(&self.devices)
-                    .map(|hint| format!("{hint} ({err:#})"))
-                    .unwrap_or_else(|| format!("Reconnexion impossible : {err:#}"));
-                self.status_error = true;
+                if let Some(hint) = devices::detection_hint(&self.devices) {
+                    self.status = hint;
+                    self.status_error = false;
+                } else {
+                    self.status = format!("Reconnexion impossible : {err:#}");
+                    self.status_error = true;
+                }
             }
         }
     }
@@ -4618,8 +4625,22 @@ impl App {
                 );
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let qmk_present = self
+                    .devices
+                    .iter()
+                    .any(|device| device.kind == devices::DeviceKind::QmkRawHid);
+                if ui.button("Reconnecter").clicked() {
+                    self.reconnect();
+                }
+                if qmk_present && self.controller.is_none() {
+                    if ui.button("Éclairage QMK").clicked() {
+                        self.page = Page::Devices;
+                    }
+                }
                 let (state, color) = if self.controller.is_some() {
                     ("● Connecté", OK)
+                } else if qmk_present {
+                    ("● QMK/VIA détecté", Color32::from_rgb(90, 150, 230))
                 } else {
                     ("● Hors ligne", ERR)
                 };
@@ -5057,11 +5078,22 @@ impl App {
                 );
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let qmk_present = self
+                    .devices
+                    .iter()
+                    .any(|device| device.kind == devices::DeviceKind::QmkRawHid);
                 if ui.button("Reconnecter").clicked() {
                     self.reconnect();
                 }
+                if qmk_present && self.controller.is_none() {
+                    if ui.button("Éclairage QMK").clicked() {
+                        self.page = Page::Devices;
+                    }
+                }
                 let (state, color) = if self.controller.is_some() {
                     ("● Connecté", OK)
+                } else if qmk_present {
+                    ("● QMK/VIA détecté", Color32::from_rgb(90, 150, 230))
                 } else {
                     ("● Hors ligne", ERR)
                 };

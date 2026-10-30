@@ -3,6 +3,14 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.3.1 — 2026-10-30
+
+### Corrigé
+
+- Clavier QMK/VIA détecté sans EVision : statut informatif, sans erreur
+  « 320F:5041 introuvable » en rouge.
+- Badge « QMK/VIA détecté » et bouton « Éclairage QMK » vers Claviers.
+
 ## 1.3.0 — 2026-10-30
 
 ### Ajouté
