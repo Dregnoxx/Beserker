@@ -3935,8 +3935,16 @@ impl App {
                 self.read_qmk();
             }
             Err(err) => {
-                self.qmk_status = format!("Connexion QMK/VIA impossible : {err:#}");
-                app_log(&format!("QMK/VIA connexion erreur : {err:#}"));
+                let detail = format!("{err:#}");
+                let lower = detail.to_lowercase();
+                if lower.contains("permission denied") || lower.contains("accès refusé") {
+                    self.qmk_status = format!(
+                        "Accès /dev/hidraw refusé. Réinstaller la règle udev 90-berserker-rgb.rules (elle couvre 320F:5041 et 320F:5042), puis rebrancher le clavier. Détail : {detail}"
+                    );
+                } else {
+                    self.qmk_status = format!("Connexion QMK/VIA impossible : {detail}");
+                }
+                app_log(&format!("QMK/VIA connexion erreur : {detail}"));
             }
         }
     }
@@ -4200,6 +4208,13 @@ impl App {
                                 if ui.button("Connecter l'éclairage QMK").clicked() {
                                     connect = true;
                                 }
+                                ui.label(
+                                    RichText::new(
+                                        "Accès refusé ? Réinstaller 90-berserker-rgb.rules (couvre 320F:5041 et 320F:5042), puis rebrancher.",
+                                    )
+                                    .size(9.5)
+                                    .color(MUTED),
+                                );
                             } else {
                                 if let Some(protocol) = protocol {
                                     ui.label(

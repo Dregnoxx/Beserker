@@ -3,6 +3,15 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.3.2 — 2026-10-30
+
+### Corrigé
+
+- Règle udev Linux étendue à tout le VID `320F` : EVision 320F:5041 et
+  QMK/VIA 320F:5042. Corrige `Permission denied` sur `/dev/hidraw7`.
+- Message QMK/VIA explicite si l'accès hidraw est refusé.
+- Règle fournie à la racine du paquet et dans `linux/`.
+
 ## 1.3.1 — 2026-10-30
 
 ### Corrigé
