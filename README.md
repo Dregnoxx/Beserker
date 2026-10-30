@@ -139,16 +139,20 @@ Avec l'AppImage :
 ```bash
 chmod +x Berserker-RGB-x86_64.AppImage
 ./Berserker-RGB-x86_64.AppImage
+# si FUSE n'est pas disponible :
+./Berserker-RGB-x86_64.AppImage --appimage-extract-and-run
 ```
 
 Ou avec l'archive :
 
 ```bash
 tar -xzf berserker-rgb-linux-x86_64.tar.gz
-./berserker-rgb
+./run-berserker-rgb.sh
 ```
 
-Accès à `/dev/hidraw` (une fois) :
+Accès à `/dev/hidraw` (une fois). La règle est fournie dans
+[`packaging/90-berserker-rgb.rules`](packaging/90-berserker-rgb.rules) et dans
+l'archive Linux :
 
 ```bash
 sudo cp 90-berserker-rgb.rules /etc/udev/rules.d/
@@ -209,7 +213,8 @@ berserker-rgb --dump-config <offset> <taille>
 
 Les commandes `--custom-read` / `--custom-write` manipulent les jeux de
 couleurs EVision (10 jeux de 378 octets). Le firmware affiche le jeu 0 ;
-l'application y recopie le profil sélectionné.
+l'application y recopie le profil sélectionné. Pour `--profile-switch`,
+l'index `0` correspond au profil 1 et l'index `9` au profil 10.
 
 ## Compilation
 
@@ -269,6 +274,8 @@ packaging/         règle udev et lanceur Linux
 ## Licence
 
 Distribué sous licence [MIT](LICENSE).
+
+Projet indépendant, non affilié au fabricant du clavier.
 
 ---
 
