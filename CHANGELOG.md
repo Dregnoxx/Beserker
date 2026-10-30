@@ -3,6 +3,29 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.1.6 — 2026-10-30
+
+### Corrigé
+
+- `--dump-config` lit toute la plage demandée par trames de 56 octets et
+  retourne une erreur si la réponse est incomplète, au lieu de tronquer
+  silencieusement à 56 octets.
+- Analyse des couleurs CLI, des états de profil et des calques protégée
+  contre les chaînes UTF-8 : plus de panique sur `a€bb` ou similaire.
+- Fichiers `.sha256` Linux imbriqués des paquets v1.1.1 à v1.1.3 : chemins
+  corrigés, `sha256sum -c` fonctionne depuis leur dossier.
+- Paquet v1.1.4 : `Cargo.toml` et `Cargo.lock` passés en version 1.1.4.
+
+### Ajouté
+
+- Exe Windows : icône, informations de version `1.1.6.0` et manifeste
+  embarqués (DPI PerMonitorV2, asInvoker, long paths, UTF-8).
+- `docs/WINDOWS.md` : métadonnées et procédure de signature Authenticode.
+
+### Modifié
+
+- Prérequis de compilation : Rust 1.95+ (eframe/egui 0.37), au lieu de 1.85.
+
 ## 1.1.5 — 2026-10-30
 
 ### Corrigé

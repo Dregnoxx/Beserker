@@ -466,13 +466,11 @@ fn read_profile_state(path: &std::path::Path) -> Option<ProfileSnapshot> {
             "version" => version = value.parse().unwrap_or(1),
             "mode" => mode_index = value.parse().ok()?,
             "mode_id" => mode_id = value.parse().ok(),
-            "rgb" if value.len() == 6 => {
-                snap.rgb = [
-                    u8::from_str_radix(&value[0..2], 16).ok()?,
-                    u8::from_str_radix(&value[2..4], 16).ok()?,
-                    u8::from_str_radix(&value[4..6], 16).ok()?,
-                ];
-                seen = true;
+            "rgb" => {
+                if let Some(rgb) = parse_rgb_hex(value) {
+                    snap.rgb = rgb;
+                    seen = true;
+                }
             }
             "brightness" => snap.brightness = value.parse().ok()?,
             "speed" => {
@@ -558,15 +556,9 @@ fn read_layers_file(path: &std::path::Path) -> Vec<EffectLayer> {
         let reverse = fields[2] == "1";
         let blend = BlendMode::from_id(fields[3].parse::<u8>().unwrap_or(0));
         let enabled = fields[4] != "0";
-        let rgb_text = fields[5];
-        if rgb_text.len() != 6 {
+        let Some(rgb) = parse_rgb_hex(fields[5]) else {
             continue;
-        }
-        let rgb = [
-            u8::from_str_radix(&rgb_text[0..2], 16).unwrap_or(255),
-            u8::from_str_radix(&rgb_text[2..4], 16).unwrap_or(255),
-            u8::from_str_radix(&rgb_text[4..6], 16).unwrap_or(255),
-        ];
+        };
         let mask = mask_from_hex(fields[6]);
         layers.push(EffectLayer {
             kind,
@@ -866,16 +858,24 @@ fn compose_effect_layers(
     out
 }
 
-fn parse_hex_color(s: &str) -> Result<[u8; 3]> {
-    let s = s.trim_start_matches('#');
-    if s.len() != 6 {
-        return Err(anyhow!("couleur attendue au format RRGGBB"));
+/// Analyse une couleur RRGGBB. La validation ASCII précède toute découpe :
+/// une chaîne UTF-8 de même longueur en octets ne peut pas provoquer de
+/// découpe au milieu d'un caractère.
+fn parse_rgb_hex(text: &str) -> Option<[u8; 3]> {
+    let s = text.trim().trim_start_matches('#');
+    if s.len() != 6 || !s.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return None;
     }
-    Ok([
-        u8::from_str_radix(&s[0..2], 16)?,
-        u8::from_str_radix(&s[2..4], 16)?,
-        u8::from_str_radix(&s[4..6], 16)?,
+    Some([
+        u8::from_str_radix(&s[0..2], 16).ok()?,
+        u8::from_str_radix(&s[2..4], 16).ok()?,
+        u8::from_str_radix(&s[4..6], 16).ok()?,
     ])
+}
+
+fn parse_hex_color(s: &str) -> Result<[u8; 3]> {
+    parse_rgb_hex(s)
+        .ok_or_else(|| anyhow!("couleur attendue au format RRGGBB (6 chiffres hexadécimaux)"))
 }
 
 // ---------------------------------------------------------------------------
@@ -928,13 +928,23 @@ fn cli_config() -> Result<()> {
     Ok(())
 }
 
-fn cli_dump_config(offset: u16, size: u8) -> Result<()> {
+fn cli_dump_config(offset: u16, size: usize) -> Result<()> {
+    if size == 0 || offset as usize + size > 0x1_0000 {
+        return Err(anyhow!("plage de configuration invalide"));
+    }
     let controller = Controller::open()?;
-    let data = controller.read_config(offset, size)?;
+    let data = controller.read_config_block(offset, size)?;
+    if data.len() < size {
+        return Err(anyhow!(
+            "réponse incomplète : {} octets reçus sur {size}",
+            data.len()
+        ));
+    }
     for (i, chunk) in data.chunks(16).enumerate() {
         let values: Vec<String> = chunk.iter().map(|b| format!("{b:02X}")).collect();
         println!("{:04X}: {}", offset as usize + i * 16, values.join(" "));
     }
+    println!("{size} octets lus");
     Ok(())
 }
 
@@ -5021,5 +5031,33 @@ mod tests {
         assert!(keys.iter().any(|k| k.pos == 111));
         assert!(keys.iter().any(|k| k.label == "Inser" && k.pos == 35));
         assert!(keys.iter().all(|k| k.pos < protocol::LED_COUNT));
+    }
+
+    #[test]
+    fn couleur_utf8_invalide_rejetee_sans_panique() {
+        assert!(parse_hex_color("a€bb").is_err());
+        assert!(parse_hex_color("€€").is_err());
+        assert!(parse_hex_color("éééééé").is_err());
+        assert_eq!(parse_hex_color("#ff6000").unwrap(), [255, 96, 0]);
+    }
+
+    fn test_path(name: &str) -> PathBuf {
+        std::env::temp_dir().join(format!("berserker-rgb-{}-{name}", std::process::id()))
+    }
+
+    #[test]
+    fn etat_utf8_invalide_ne_panique() {
+        let path = test_path("state-utf8.state");
+        std::fs::write(&path, "version=3\nmode=0\nrgb=a€bb\n").unwrap();
+        assert!(read_profile_state(&path).is_none());
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
+    fn calques_utf8_invalide_ne_panique() {
+        let path = test_path("layers-utf8.layers");
+        std::fs::write(&path, "version=1\nlayer=2;1;0;0;1;a€bb;\n").unwrap();
+        assert!(read_layers_file(&path).is_empty());
+        let _ = std::fs::remove_file(path);
     }
 }

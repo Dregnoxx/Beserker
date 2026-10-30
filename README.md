@@ -3,10 +3,10 @@
   <h1>Berserker RGB</h1>
   <p><strong>Contrôle RGB per-touche et configuration du clavier Berserker BYGG.</strong></p>
   <p>
-    <img alt="Version" src="https://img.shields.io/badge/version-1.1.5--alpha-orange">
+    <img alt="Version" src="https://img.shields.io/badge/version-1.1.6--alpha-orange">
     <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
     <img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black">
-    <img alt="Rust" src="https://img.shields.io/badge/Rust-1.85%2B-000000?logo=rust">
+    <img alt="Rust" src="https://img.shields.io/badge/Rust-1.95%2B-000000?logo=rust">
     <img alt="Licence" src="https://img.shields.io/badge/licence-MIT-green">
   </p>
   <p>
@@ -17,7 +17,7 @@
   </p>
 </div>
 
-> **Statut : alpha (v1.1.5).** Application testée sur le clavier Berserker BYGG
+> **Statut : alpha (v1.1.6).** Application testée sur le clavier Berserker BYGG
 > `320F:5041` (EVision V2, 126 zones LED) sous Windows 10/11 x86_64. Le binaire
 > Linux x86_64 est fourni compilé ; valider l'accès hidraw et le rendu sur votre
 > distribution.
@@ -94,7 +94,8 @@ configuration est créé avant la première modification.
 
 - Interface native egui, une seule fenêtre, sans console.
 - Windows : rendu Direct3D 12 (GPU ou WARP), CRT statique, aucun runtime à
-  installer.
+  installer. Icône, version de fichier 1.1.6.0 et manifeste embarqués
+  (PerMonitorV2, asInvoker, long paths).
 - Linux : rendu OpenGL 2.0 via X11/XWayland.
 - CLI de diagnostic et de configuration pour les scripts.
 
@@ -132,8 +133,10 @@ Les binaires sont publiés dans l'onglet
 3. Si le clavier n'est pas détecté, fermer tout autre logiciel RGB puis
    cliquer sur **Reconnecter**.
 
-L'exécutable n'est pas signé : Windows SmartScreen peut demander une
-confirmation au premier lancement.
+L'exécutable embarque une icône, une version et un manifeste, mais n'est pas
+signé Authenticode : SmartScreen peut demander une confirmation au premier
+lancement. La signature nécessite un certificat de signature de code ; voir
+[docs/WINDOWS.md](docs/WINDOWS.md).
 
 ### Linux
 
@@ -221,7 +224,7 @@ l'index `0` correspond au profil 1 et l'index `9` au profil 10.
 
 ## Compilation
 
-Prérequis : **Rust stable 1.85+**.
+Prérequis : **Rust stable 1.95+** (eframe/egui 0.37).
 
 ```bash
 git clone https://github.com/<votre-compte>/berserker-rgb.git
@@ -297,4 +300,4 @@ DLLs. Linux builds use X11/XWayland and OpenGL 2.0. The app only sends EVision
 V2 configuration commands — it never flashes or modifies the keyboard firmware.
 
 Download binaries from the [Releases](../../releases/latest) page. Build with
-Rust 1.85+ using `cargo build --release`. MIT licensed.
+Rust 1.95+ using `cargo build --release`. MIT licensed.

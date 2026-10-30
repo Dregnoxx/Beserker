@@ -266,22 +266,32 @@ impl Controller {
         self.query(CMD_READ_CAPABILITIES, 0, &[], 7)
     }
 
-    /// Lit une plage de la configuration EVision.
+    /// Lit une plage de la configuration EVision. Les lectures dépassant la
+    /// charge utile d'une trame (56 octets) sont découpées automatiquement.
     pub fn read_config(&self, offset: u16, size: u8) -> Result<Vec<u8>> {
-        self.query(CMD_READ_CONFIG, offset, &[], size)
+        if size as usize > PACKET_SIZE - 8 {
+            self.read_chunks(CMD_READ_CONFIG, offset, size as usize)
+        } else {
+            self.query(CMD_READ_CONFIG, offset, &[], size)
+        }
     }
 
     fn read_chunks(&self, cmd: u8, offset: u16, size: usize) -> Result<Vec<u8>> {
         let mut result = Vec::with_capacity(size);
         let mut offset = offset;
         while result.len() < size {
-            let chunk = (size - result.len()).min(PACKET_SIZE - 8) as u8;
+            let remaining = size - result.len();
+            let chunk = remaining.min(PACKET_SIZE - 8) as u8;
             let data = self.query(cmd, offset, &[], chunk)?;
             if data.is_empty() {
-                break;
+                return Err(anyhow!(
+                    "réponse vide à l'offset {offset:#x} ({}/{size} octets lus)",
+                    result.len()
+                ));
             }
-            offset = offset.wrapping_add(data.len() as u16);
-            result.extend_from_slice(&data);
+            let take = data.len().min(remaining);
+            offset = offset.wrapping_add(take as u16);
+            result.extend_from_slice(&data[..take]);
         }
         Ok(result)
     }
