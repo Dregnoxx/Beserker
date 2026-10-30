@@ -18,8 +18,9 @@
 </div>
 
 > **Statut : alpha (v1.1.4).** Application testée sur le clavier Berserker BYGG
-> `320F:5041` (EVision V2, 126 zones LED), sous Windows 10/11 x86_64 et
-> Linux x86_64.
+> `320F:5041` (EVision V2, 126 zones LED) sous Windows 10/11 x86_64. Le binaire
+> Linux x86_64 est fourni compilé ; valider l'accès hidraw et le rendu sur votre
+> distribution.
 
 ## Présentation
 
@@ -127,6 +128,9 @@ Les binaires sont publiés dans l'onglet
 2. Lancer l'exécutable. Une seule fenêtre s'ouvre, sans console.
 3. Si le clavier n'est pas détecté, fermer tout autre logiciel RGB puis
    cliquer sur **Reconnecter**.
+
+L'exécutable n'est pas signé : Windows SmartScreen peut demander une
+confirmation au premier lancement.
 
 ### Linux
 
