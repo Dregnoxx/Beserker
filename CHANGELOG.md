@@ -27,7 +27,8 @@ publiés dans les releases GitHub.
 ### Corrigé
 
 - Une couleur fixe n'est plus appliquée silencieusement sur un effet qui
-  ignore la teinte ; une saturation nulle correspond au blanc.
+  ignore la teinte ; une saturation nulle correspond au blanc et le noir
+  sélectionne « Désactivé ».
 
 ## 1.3.2 — 2026-10-30
 

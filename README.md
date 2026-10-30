@@ -314,7 +314,9 @@ packaging/         règle udev et lanceur Linux
   per-key ; les IDs d'effets peuvent varier selon la compilation du firmware.
 - Effets QMK sans couleur : Désactivé (0) et les animations arc-en-ciel
   (12-24) ignorent la teinte et la saturation. L'interface le signale et
-  bascule sur **Couleur unie** (1) dès qu'une couleur est choisie.
+  bascule sur **Couleur unie** (1) dès qu'une couleur est choisie. Le noir
+  sélectionne **Désactivé**, la couleur VIA n'ayant pas de composante de
+  valeur.
 - En mode QMK/VIA, les profils EVision et les calques PC ne sont pas
   disponibles : le firmware ne gère que l'éclairage global.
 - Aucun flash de firmware n'est proposé. SonixFlasherC n'est ni inclus ni

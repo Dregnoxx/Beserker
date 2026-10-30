@@ -4216,7 +4216,12 @@ impl App {
                     .size(10.0)
                     .color(MUTED),
                 );
-                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("Saturation 0 = blanc · noir = effet Désactivé")
+                        .size(9.0)
+                        .color(Color32::from_rgb(120, 120, 120)),
+                );
+                ui.add_space(2.0);
                 let (rect, _) = ui.allocate_exact_size(Vec2::new(120.0, 38.0), Sense::hover());
                 ui.painter().rect_filled(
                     rect,
@@ -4447,6 +4452,12 @@ impl App {
     /// Une couleur fixe n'a de sens que sur « Couleur unie » : les effets
     /// arc-en-ciel et l'extinction ignorent la teinte configurée.
     fn qmk_color_changed(&mut self) {
+        if self.rgb == [0, 0, 0] {
+            self.qmk_state.effect = 0;
+            self.qmk_status =
+                "Noir : effet « Désactivé » sélectionné. Cliquez Appliquer.".to_string();
+            return;
+        }
         if qmk::effect_ignores_color(self.qmk_state.effect) {
             self.qmk_state.effect = qmk::SOLID_COLOR_EFFECT;
             self.qmk_status = format!(
