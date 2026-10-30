@@ -256,14 +256,29 @@ impl QmkLighting {
     }
 
     pub fn save(&self) -> Result<()> {
-        let mut request = [0u8; REPORT_SIZE];
-        request[0] = VIA_CMD_CUSTOM_SAVE;
+        // La sauvegarde VIA est une commande de canal : sans le canal RGB
+        // Matrix (3), le firmware répond 0xFF et n'écrit rien en EEPROM.
+        let request = save_request();
         let response = self.transfer(&request)?;
         if response[0] == 0xFF {
             return Err(anyhow!("sauvegarde VIA non gérée par le firmware"));
         }
+        if response[0] != VIA_CMD_CUSTOM_SAVE || response[1] != VIA_CHANNEL_RGB_MATRIX {
+            return Err(anyhow!(
+                "réponse VIA incohérente pour la sauvegarde ({:#04x} {:#04x})",
+                response[0],
+                response[1]
+            ));
+        }
         Ok(())
     }
+}
+
+fn save_request() -> [u8; REPORT_SIZE] {
+    let mut request = [0u8; REPORT_SIZE];
+    request[0] = VIA_CMD_CUSTOM_SAVE;
+    request[1] = VIA_CHANNEL_RGB_MATRIX;
+    request
 }
 
 /// Effets RGB Matrix standard QMK (IDs du firmware SonixQMK).
@@ -309,6 +324,12 @@ pub const EFFECTS: &[(u8, &str)] = &[
     (37, "Réactif nexus"),
     (38, "Splash"),
     (39, "Solid splash"),
+    // Effets supplémentaires acceptés par le firmware flashé (IDs 40-43),
+    // sans nom standard QMK stable. Le rendu est contrôlable par l'ID brut.
+    (40, "Extension firmware 40"),
+    (41, "Extension firmware 41"),
+    (42, "Extension firmware 42"),
+    (43, "Extension firmware 43"),
 ];
 
 pub fn effect_label(id: u8) -> &'static str {
@@ -324,4 +345,27 @@ pub fn effect_label(id: u8) -> &'static str {
 /// au rendu ; il faut « Couleur unie » pour une couleur fixe.
 pub fn effect_ignores_color(id: u8) -> bool {
     id == 0 || (12..=24).contains(&id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sauvegarde_sur_le_canal_rgb_matrix() {
+        let request = save_request();
+        assert_eq!(request[0], VIA_CMD_CUSTOM_SAVE);
+        assert_eq!(request[1], VIA_CHANNEL_RGB_MATRIX);
+        assert!(request[2..].iter().all(|byte| *byte == 0));
+    }
+
+    #[test]
+    fn effets_connus_et_extensions() {
+        assert_eq!(effect_label(1), "Couleur unie");
+        assert_eq!(effect_label(13), "Cycle gauche/droite");
+        assert_eq!(effect_label(23), "Gouttes de pluie");
+        assert_eq!(effect_label(33), "Réactif simple");
+        assert_eq!(effect_label(39), "Solid splash");
+        assert_eq!(effect_label(43), "Extension firmware 43");
+    }
 }

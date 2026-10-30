@@ -3,7 +3,7 @@
   <h1>Berserker RGB</h1>
   <p><strong>Contrôle RGB per-touche et configuration du clavier Berserker BYGG.</strong></p>
   <p>
-    <img alt="Version" src="https://img.shields.io/badge/version-1.3.3--alpha-orange">
+    <img alt="Version" src="https://img.shields.io/badge/version-1.3.4--alpha-orange">
     <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
     <img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black">
     <img alt="Rust" src="https://img.shields.io/badge/Rust-1.95%2B-000000?logo=rust">
@@ -17,7 +17,7 @@
   </p>
 </div>
 
-> **Statut : alpha (v1.3.3).** Application testée sur le clavier Berserker BYGG
+> **Statut : alpha (v1.3.4).** Application testée sur le clavier Berserker BYGG
 > `320F:5041` (EVision V2, 126 zones LED) sous Windows 10/11 x86_64. Le binaire
 > Linux x86_64 est fourni compilé ; valider l'accès hidraw et le rendu sur votre
 > distribution.
@@ -109,6 +109,10 @@ configuration est créé avant la première modification.
 - L'aperçu distingue les effets qui utilisent la couleur des animations
   arc-en-ciel (IDs 12-24). Choisir une couleur bascule automatiquement sur
   **Couleur unie** (ID 1) ; une saturation nulle correspond au blanc.
+- Le firmware flashé expose 44 effets (IDs 0-43). Les IDs 40-43 sont des
+  extensions propres au firmware, sans nom standard : l'ID brut reste
+  modifiable. La sauvegarde EEPROM est envoyée sur le canal RGB Matrix (3)
+  après chaque application et reste disponible manuellement.
 - VID/PID, usage HID, nom produit, chemin et puce Sonix éventuelle sont
   affichés ; les informations sont copiables.
 - L'édition RGB per-touche reste centrée sur le Berserker BYGG TKL EVision.
@@ -119,7 +123,7 @@ configuration est créé avant la première modification.
 
 - Interface native egui, une seule fenêtre, sans console.
 - Windows : rendu Direct3D 12 (GPU ou WARP), CRT statique, aucun runtime à
-  installer. Icône, version de fichier 1.3.3.0 et manifeste embarqués
+  installer. Icône, version de fichier 1.3.4.0 et manifeste embarqués
   (PerMonitorV2, asInvoker, long paths).
 - Linux : rendu OpenGL 2.0 via X11/XWayland.
 - CLI de diagnostic et de configuration pour les scripts.
@@ -250,10 +254,16 @@ berserker-rgb --custom-read <jeu 0-9> <fichier>
 berserker-rgb --custom-write <jeu 0-9> <fichier>
 berserker-rgb --direct-test RRGGBB [secondes]
 berserker-rgb --dump-config <offset> <taille>
+berserker-rgb --qmk-state
+berserker-rgb --qmk-solid RRGGBB
+berserker-rgb --qmk-set <effet> <luminosité> <vitesse> <teinte> <saturation>
+berserker-rgb --qmk-save
 ```
 
-Les commandes `--custom-read` / `--custom-write` manipulent les jeux de
-couleurs EVision (10 jeux de 378 octets). Le firmware affiche le jeu 0 ;
+Les commandes `--qmk-*` pilotent l'éclairage RGB Matrix du firmware QMK/VIA
+(canal 3) et servent au diagnostic ; elles ne flashent rien. Les commandes
+`--custom-read` / `--custom-write` manipulent les jeux de couleurs EVision
+(10 jeux de 378 octets). Le firmware affiche le jeu 0 ;
 l'application y recopie le profil sélectionné. Pour `--profile-switch`,
 l'index `0` correspond au profil 1 et l'index `9` au profil 10.
 
@@ -354,8 +364,10 @@ models, Sonix ISP bootloaders and QMK/VIA interfaces. QMK keyboards get global
 RGB Matrix controls through the VIA protocol (effect, brightness, speed, color
 and EEPROM save) inside the Lighting page, with the same layout as EVision.
 The VIA interface is opened automatically, rainbow effects (IDs 12-24) are
-previewed as such, and picking a color switches to Solid Color (ID 1).
-Per-key editing remains EVision-only.
+previewed as such, and picking a color switches to Solid Color (ID 1). The
+flashed firmware exposes 44 effects (IDs 0-43); IDs 40-43 are unlabelled
+firmware extensions. EEPROM save is sent on RGB Matrix channel 3 after each
+apply. Per-key editing remains EVision-only.
 
 Windows builds use Direct3D 12 (GPU or WARP) with a static CRT and no external
 DLLs. Linux builds use X11/XWayland and OpenGL 2.0. The app only sends EVision

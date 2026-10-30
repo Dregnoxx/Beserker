@@ -3,6 +3,34 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.3.4 — 2026-10-31
+
+### Corrigé
+
+- Sauvegarde EEPROM QMK/VIA : la commande était envoyée sur le canal 0, donc
+  refusée. Elle part maintenant sur le canal RGB Matrix (3), avec contrôle de
+  la réponse `09 03` du firmware.
+- L'application applique puis sauvegarde automatiquement l'état QMK après
+  **Appliquer l'effet** ; la relecture de contrôle met à jour l'interface et
+  signale un effet refusé.
+- Les IDs d'effets 40-43 du firmware flashé sont visibles dans la liste
+  (extensions sans nom standard) au lieu d'être absents.
+- Les pages Effets et Autres réglages sont explicitement indisponibles en
+  QMK/VIA au lieu d'afficher des commandes EVision inopérantes.
+- Statut « Clavier QMK/VIA connecté » après l'ouverture automatique de VIA.
+
+### Ajouté
+
+- Commandes de diagnostic `--qmk-state`, `--qmk-solid`, `--qmk-set` et
+  `--qmk-save` pour tester l'éclairage RGB Matrix sans interface graphique.
+
+### Compatibilité
+
+- Firmware EVision 320F:5041 inchangé : per-key, profils, effets PC et
+  réglages matériels restent disponibles.
+- QMK/VIA 320F:5042 : éclairage global uniquement ; le per-key n'est pas
+  exposé par le firmware.
+
 ## 1.3.3 — 2026-10-30
 
 ### Ajouté
