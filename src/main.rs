@@ -1676,6 +1676,7 @@ struct App {
     selected_layer: Option<usize>,
     live: Option<LiveRuntime>,
     live_colors: Option<Vec<[u8; 3]>>,
+    window_hidden: bool,
     polling_index: usize,
     debounce_index: usize,
     win_lock: bool,
@@ -1715,6 +1716,7 @@ impl App {
             selected_layer: None,
             live: None,
             live_colors: None,
+            window_hidden: false,
             polling_index: 0,
             debounce_index: 0,
             win_lock: false,
@@ -2381,11 +2383,71 @@ impl App {
         compose_effect_layers(&self.layers, now, &base, &positions)
     }
 
+    fn live_frame_colors(&self) -> Option<Vec<[u8; 3]>> {
+        if let Some(colors) = &self.live_colors {
+            Some(colors.clone())
+        } else {
+            self.live
+                .as_ref()
+                .map(|live| self.compose_live_colors(live.started.elapsed().as_secs_f32()))
+        }
+    }
+
+    /// Publie une image statique des calques comme base per-touche du clavier.
+    /// Elle sert de secours quand les frames directes s'arrêtent (fenêtre
+    /// réduite ou application fermée) : le clavier garde l'effet au lieu de
+    /// revenir immédiatement à l'éclairage de base.
+    fn publish_live_snapshot(&self, colors: &[[u8; 3]]) -> Result<()> {
+        let Some(controller) = &self.controller else {
+            return Err(anyhow!("aucun clavier ouvert"));
+        };
+        let data = colors_to_data(colors);
+        controller.write_custom_colors(0, &data)?;
+        controller.set_custom_mode(
+            0,
+            self.brightness,
+            protocol::firmware_speed(self.speed),
+            if self.reverse { 1 } else { 0 },
+        )?;
+        Ok(())
+    }
+
+    /// Fige la dernière image des calques sur le clavier et arrête le rendu
+    /// direct. Les couleurs locales et les calques ne sont pas modifiés.
+    fn freeze_live_frame(&mut self) -> bool {
+        if self.layers.is_empty() {
+            return false;
+        }
+        let Some(colors) = self.live_frame_colors() else {
+            return false;
+        };
+        let Some(controller) = &self.controller else {
+            return false;
+        };
+        let _ = controller.end_direct();
+        match self.publish_live_snapshot(&colors) {
+            Ok(()) => {
+                self.live = None;
+                self.live_colors = None;
+                self.status = "Dernière image des effets figée sur le clavier.".to_string();
+                self.status_error = false;
+                true
+            }
+            Err(err) => {
+                self.status = format!("Effets PC arrêtés : {err:#}");
+                self.status_error = true;
+                self.stop_live();
+                false
+            }
+        }
+    }
+
     fn start_live(&mut self) -> bool {
         if self.controller.is_none() || self.layers.is_empty() {
             return false;
         }
-        if self.live.is_none() {
+        let first_frame = self.live.is_none();
+        if first_frame {
             self.live = Some(LiveRuntime {
                 started: Instant::now(),
                 last_frame: Instant::now() - Duration::from_millis(60),
@@ -2396,7 +2458,14 @@ impl App {
             .as_ref()
             .map(|live| live.started.elapsed().as_secs_f32())
             .unwrap_or(0.0);
-        self.live_colors = Some(self.compose_live_colors(now));
+        let colors = self.compose_live_colors(now);
+        if first_frame {
+            if let Err(err) = self.publish_live_snapshot(&colors) {
+                self.status = format!("Image de secours des effets non publiée : {err:#}");
+                self.status_error = true;
+            }
+        }
+        self.live_colors = Some(colors);
         true
     }
 
@@ -2484,7 +2553,52 @@ impl App {
         let _ = self.save_profile_files();
     }
 
+    /// Quand la fenêtre est réduite ou masquée, les passes egui s'arrêtent.
+    /// On publie l'image courante comme base per-touche pour que le clavier
+    /// garde l'effet au lieu de revenir à l'éclairage de base.
+    fn handle_window_visibility(&mut self, ctx: &egui::Context) {
+        let (minimized, occluded) = ctx.input(|input| {
+            let viewport = input.viewport();
+            (
+                viewport.minimized.unwrap_or(false),
+                viewport.occluded.unwrap_or(false),
+            )
+        });
+        let hidden = minimized || occluded;
+        if hidden == self.window_hidden {
+            return;
+        }
+        self.window_hidden = hidden;
+        if hidden {
+            if self.live.is_none() {
+                return;
+            }
+            let Some(colors) = self.live_frame_colors() else {
+                return;
+            };
+            let Some(controller) = &self.controller else {
+                return;
+            };
+            let _ = controller.end_direct();
+            if let Err(err) = self.publish_live_snapshot(&colors) {
+                self.status = format!("Image de secours des effets non publiée : {err:#}");
+                self.status_error = true;
+            }
+            if let Some(live) = self.live.as_mut() {
+                live.last_frame = Instant::now() - Duration::from_millis(60);
+            }
+        } else if self.live.is_some() {
+            if let Some(live) = self.live.as_mut() {
+                live.last_frame = Instant::now() - Duration::from_millis(60);
+            }
+            ctx.request_repaint();
+        }
+    }
+
     fn tick_live(&mut self, ctx: &egui::Context) {
+        if self.window_hidden {
+            return;
+        }
         let Some(live) = self.live.clone() else {
             return;
         };
@@ -3948,6 +4062,13 @@ impl App {
                     )
                 };
                 ui.label(RichText::new(base_note).size(10.5).color(MUTED));
+                ui.label(
+                    RichText::new(
+                        "Fenêtre réduite ou application fermée : la dernière image des effets reste figée sur le clavier ; les calques sont rejoués au prochain lancement.",
+                    )
+                    .size(9.5)
+                    .color(MUTED),
+                );
                 ui.add_space(4.0);
                 self.keyboard(ui, self.controller.is_some());
             });
@@ -4777,17 +4898,22 @@ fn menu_item(ui: &mut egui::Ui, label: &str, selected: bool, enabled: bool) -> b
 impl eframe::App for App {
     #[cfg(not(windows))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        self.stop_live();
+        if !self.freeze_live_frame() {
+            self.stop_live();
+        }
         let _ = self.save_profile_files();
     }
 
     #[cfg(windows)]
     fn on_exit(&mut self) {
-        self.stop_live();
+        if !self.freeze_live_frame() {
+            self.stop_live();
+        }
         let _ = self.save_profile_files();
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.handle_window_visibility(ui.ctx());
         self.tick_live(ui.ctx());
         egui::Panel::left("sidebar")
             .exact_size(212.0)

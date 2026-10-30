@@ -3,7 +3,7 @@
   <h1>Berserker RGB</h1>
   <p><strong>Contrôle RGB per-touche et configuration du clavier Berserker BYGG.</strong></p>
   <p>
-    <img alt="Version" src="https://img.shields.io/badge/version-1.1.4--alpha-orange">
+    <img alt="Version" src="https://img.shields.io/badge/version-1.1.5--alpha-orange">
     <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
     <img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black">
     <img alt="Rust" src="https://img.shields.io/badge/Rust-1.85%2B-000000?logo=rust">
@@ -17,7 +17,7 @@
   </p>
 </div>
 
-> **Statut : alpha (v1.1.4).** Application testée sur le clavier Berserker BYGG
+> **Statut : alpha (v1.1.5).** Application testée sur le clavier Berserker BYGG
 > `320F:5041` (EVision V2, 126 zones LED) sous Windows 10/11 x86_64. Le binaire
 > Linux x86_64 est fourni compilé ; valider l'accès hidraw et le rendu sur votre
 > distribution.
@@ -64,6 +64,9 @@ clavier reste intact.
 - Jusqu'à **8 calques**, chacun limité à une sélection de touches, avec
   couleur, vitesse, sens, mélange (Ajouter/Remplacer), ordre et activation.
 - Les calques sont enregistrés avec le profil et rejoués au démarrage.
+- Fenêtre réduite ou application fermée : la dernière image des calques est
+  figée en couleurs per-touche sur le clavier. Les animations reprennent au
+  lancement suivant ; les calques restent enregistrés.
 - Vitesse réglable de 0 (lent) à 4 (rapide) ; désactivée pour les modes qui
   l'ignorent (Statique, Balayage, Radiation, Personnalisé).
 
@@ -262,8 +265,9 @@ packaging/         règle udev et lanceur Linux
 ## Limites connues
 
 - Application en alpha ; le clavier cible est le `320F:5041`.
-- Les calques d'effets sont rendus par l'application sur le PC. À la fermeture,
-  le clavier revient à l'effet firmware de base.
+- Les calques d'effets sont animés par l'application sur le PC. À la réduction
+  ou à la fermeture, la dernière image est figée en couleurs per-touche ; le
+  rendu animé reprend au lancement suivant.
 - Les effets réactifs aux frappes ne sont pas disponibles : l'application ne
   capture pas les touches au niveau système.
 - Les macros sont une bibliothèque de fichiers ; il n'y a pas d'upload vers le

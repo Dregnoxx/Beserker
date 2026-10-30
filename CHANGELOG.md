@@ -3,6 +3,17 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.1.5 — 2026-10-30
+
+### Corrigé
+
+- Réduction ou fermeture de la fenêtre : la dernière image des calques est
+  publiée en couleurs per-touche et reste affichée sur le clavier, au lieu de
+  revenir immédiatement à l'éclairage de base.
+- Une image de secours est publiée dès l'activation des calques pour couvrir
+  l'arrêt des frames directes quand la fenêtre est réduite ou masquée.
+- Le rendu animé et les calques enregistrés reprennent au lancement suivant.
+
 ## 1.1.4 — 2026-10-30
 
 ### Ajouté

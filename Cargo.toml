@@ -1,11 +1,7 @@
 [package]
 name = "berserker-rgb"
-version = "1.1.4"
+version = "1.1.5"
 edition = "2024"
-rust-version = "1.85"
-description = "Contrôle RGB per-touche et configuration du clavier Berserker BYGG (EVision V2, USB 320F:5041)"
-license = "MIT"
-readme = "README.md"
 
 [dependencies]
 anyhow = "1.0.104"
@@ -15,7 +11,7 @@ eframe = { version = "0.37.0", default-features = false, features = [
     "wgpu_no_default_features",
     "default_fonts",
 ] }
-# Backend Direct3D 12 uniquement (GPU matériel ou WARP fourni par Windows).
+# Uniquement le backend Direct3D 12 (GPU matériel ou WARP de Windows).
 wgpu = { version = "30.0.1", default-features = false, features = [
     "dx12",
     "wgsl",
