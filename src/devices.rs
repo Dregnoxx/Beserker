@@ -58,7 +58,7 @@ impl DeviceKind {
                 "Bootloader Sonix détecté. SonixFlasherC est un outil séparé : ni inclus, ni lancé par cette app."
             }
             Self::QmkRawHid => {
-                "Firmware QMK/VIA détecté. L'édition RGB EVision n'est pas disponible sur ce firmware."
+                "Firmware QMK/VIA détecté. Éclairage global RGB Matrix disponible dans cette page ; per-key non exposé par le firmware."
             }
         }
     }
@@ -170,6 +170,24 @@ fn push_unique(devices: &mut Vec<DeviceInfo>, device: DeviceInfo) {
             && existing.kind == device.kind
             && existing.product == device.product
     }) {
+        return;
+    }
+    if device.kind == DeviceKind::QmkRawHid {
+        // Une même interface QMK expose aussi une collection EVision/clavier
+        // standard : ne pas la présenter comme un second modèle EVision.
+        devices.retain(|existing| {
+            !(existing.kind == DeviceKind::EvisionOther
+                && existing.vid == device.vid
+                && existing.pid == device.pid)
+        });
+    }
+    if device.kind == DeviceKind::EvisionOther
+        && devices.iter().any(|existing| {
+            existing.kind == DeviceKind::QmkRawHid
+                && existing.vid == device.vid
+                && existing.pid == device.pid
+        })
+    {
         return;
     }
     devices.push(device);
@@ -290,7 +308,9 @@ pub fn detection_hint(devices: &[DeviceInfo]) -> Option<String> {
         .iter()
         .any(|device| device.kind == DeviceKind::QmkRawHid)
     {
-        return Some("Clavier QMK/VIA détecté · édition RGB EVision indisponible.".to_string());
+        return Some(
+            "Clavier QMK/VIA détecté · éclairage global disponible dans Claviers.".to_string(),
+        );
     }
     if devices
         .iter()

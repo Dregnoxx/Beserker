@@ -3,6 +3,23 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.3.0 — 2026-10-30
+
+### Ajouté
+
+- Client VIA minimal pour l'éclairage RGB Matrix des claviers QMK/VIA
+  reflashés : luminosité, effet, vitesse, teinte, saturation, lecture et
+  sauvegarde EEPROM.
+- Effets QMK standard proposés avec ID brut pour les variantes de firmware.
+- Dédoublonnage de la fiche QMK : la collection clavier standard n'apparaît
+  plus comme un second modèle EVision.
+
+### Limites
+
+- Le per-key n'est pas exposé par le firmware QMK/VIA ; l'édition per-touche
+  reste réservée au firmware EVision d'usine.
+- Aucun flash n'est effectué ; SonixFlasherC reste un outil séparé.
+
 ## 1.2.0 — 2026-10-30
 
 ### Ajouté

@@ -5,6 +5,7 @@ mod layout;
 #[cfg(target_os = "linux")]
 mod linux_hid;
 mod protocol;
+mod qmk;
 
 use anyhow::{Result, anyhow};
 use eframe::egui;
@@ -1723,6 +1724,9 @@ struct App {
     hidden_worker: Option<HiddenWorker>,
     close_guard_done: bool,
     devices: Vec<devices::DeviceInfo>,
+    qmk: Option<qmk::QmkLighting>,
+    qmk_state: qmk::QmkState,
+    qmk_status: String,
     polling_index: usize,
     debounce_index: usize,
     win_lock: bool,
@@ -1766,6 +1770,9 @@ impl App {
             hidden_worker: None,
             close_guard_done: false,
             devices: devices::scan(),
+            qmk: None,
+            qmk_state: qmk::QmkState::default(),
+            qmk_status: String::new(),
             polling_index: 0,
             debounce_index: 0,
             win_lock: false,
@@ -2931,6 +2938,8 @@ impl App {
 
     fn reconnect(&mut self) {
         self.stop_live();
+        self.qmk = None;
+        self.qmk_status.clear();
         self.devices = devices::scan();
         match Controller::open() {
             Ok(controller) => {
@@ -3901,6 +3910,79 @@ impl App {
         }
     }
 
+    fn connect_qmk(&mut self) {
+        self.qmk = None;
+        let Some(device) = self
+            .devices
+            .iter()
+            .find(|device| device.kind == devices::DeviceKind::QmkRawHid)
+            .cloned()
+        else {
+            self.qmk_status = "Aucune interface QMK/VIA détectée.".to_string();
+            return;
+        };
+        match qmk::QmkLighting::open(&device) {
+            Ok(lighting) => {
+                self.qmk = Some(lighting);
+                app_log(&format!("QMK/VIA connecté : {}", device.summary()));
+                self.read_qmk();
+            }
+            Err(err) => {
+                self.qmk_status = format!("Connexion QMK/VIA impossible : {err:#}");
+                app_log(&format!("QMK/VIA connexion erreur : {err:#}"));
+            }
+        }
+    }
+
+    fn read_qmk(&mut self) {
+        let Some(lighting) = self.qmk.as_ref() else {
+            self.qmk_status = "QMK/VIA non connecté.".to_string();
+            return;
+        };
+        match lighting.read_state() {
+            Ok(state) => {
+                self.qmk_state = state;
+                self.qmk_status = format!("QMK/VIA lu · protocole {:#06x}", lighting.protocol());
+            }
+            Err(err) => {
+                self.qmk_status = format!("Lecture QMK/VIA impossible : {err:#}");
+                app_log(&format!("QMK/VIA lecture erreur : {err:#}"));
+            }
+        }
+    }
+
+    fn apply_qmk(&mut self) {
+        let Some(lighting) = self.qmk.as_ref() else {
+            self.qmk_status = "QMK/VIA non connecté.".to_string();
+            return;
+        };
+        match lighting.apply(self.qmk_state) {
+            Ok(()) => {
+                self.qmk_status = "Éclairage QMK/VIA appliqué.".to_string();
+            }
+            Err(err) => {
+                self.qmk_status = format!("Écriture QMK/VIA impossible : {err:#}");
+                app_log(&format!("QMK/VIA écriture erreur : {err:#}"));
+            }
+        }
+    }
+
+    fn save_qmk(&mut self) {
+        let Some(lighting) = self.qmk.as_ref() else {
+            self.qmk_status = "QMK/VIA non connecté.".to_string();
+            return;
+        };
+        match lighting.save() {
+            Ok(()) => {
+                self.qmk_status = "Éclairage QMK/VIA sauvegardé dans l'EEPROM.".to_string();
+            }
+            Err(err) => {
+                self.qmk_status = format!("Sauvegarde QMK/VIA impossible : {err:#}");
+                app_log(&format!("QMK/VIA sauvegarde erreur : {err:#}"));
+            }
+        }
+    }
+
     fn devices_page(&mut self, ui: &mut egui::Ui) {
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
@@ -3927,6 +4009,17 @@ impl App {
                         }
                         if ui.button("Actualiser").clicked() {
                             self.devices = devices::scan();
+                            if self.qmk.is_some()
+                                && !self
+                                    .devices
+                                    .iter()
+                                    .any(|device| {
+                                        device.kind == devices::DeviceKind::QmkRawHid
+                                    })
+                            {
+                                self.qmk = None;
+                                self.qmk_status = "QMK/VIA déconnecté.".to_string();
+                            }
                             self.status = format!(
                                 "{} appareil(s) HID compatible(s) détecté(s).",
                                 self.devices.len()
@@ -4051,6 +4144,182 @@ impl App {
                     ui.add_space(6.0);
                 }
 
+                if let Some(qmk_device) = self
+                    .devices
+                    .iter()
+                    .find(|device| device.kind == devices::DeviceKind::QmkRawHid)
+                    .cloned()
+                {
+                    let connected = self.qmk.is_some();
+                    let protocol = self.qmk.as_ref().map(|qmk| qmk.protocol());
+                    let mut state = self.qmk_state;
+                    let mut connect = false;
+                    let mut read = false;
+                    let mut apply = false;
+                    let mut save = false;
+                    let mut disconnect = false;
+                    egui::Frame::new()
+                        .fill(CARD)
+                        .corner_radius(8)
+                        .stroke(Stroke::new(1.0, Color32::from_rgb(200, 210, 230)))
+                        .inner_margin(egui::Margin::same(14))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new("Éclairage QMK/VIA · RGB Matrix")
+                                    .size(13.0)
+                                    .strong()
+                                    .color(Color32::from_rgb(45, 45, 45)),
+                            );
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} · {}",
+                                    qmk_device.identity(),
+                                    qmk_device
+                                        .product
+                                        .as_deref()
+                                        .unwrap_or("clavier QMK/VIA")
+                                ))
+                                .size(10.5)
+                                .color(Color32::from_rgb(90, 90, 90)),
+                            );
+                            if !connected {
+                                ui.label(
+                                    RichText::new(
+                                        "Contrôle global : luminosité, effet, vitesse, teinte et saturation via le protocole VIA. Aucun flash.",
+                                    )
+                                    .size(10.0)
+                                    .color(MUTED),
+                                );
+                                if ui.button("Connecter l'éclairage QMK").clicked() {
+                                    connect = true;
+                                }
+                            } else {
+                                if let Some(protocol) = protocol {
+                                    ui.label(
+                                        RichText::new(format!("Protocole VIA {protocol:#06x}"))
+                                            .size(10.0)
+                                            .color(OK),
+                                    );
+                                }
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("Effet").size(10.0).color(MUTED));
+                                    let mut effect = state.effect;
+                                    egui::ComboBox::from_id_salt("qmk_rgb_effect")
+                                        .width(250.0)
+                                        .selected_text(qmk::effect_label(effect))
+                                        .show_ui(ui, |ui| {
+                                            for (id, label) in qmk::EFFECTS {
+                                                ui.selectable_value(
+                                                    &mut effect,
+                                                    *id,
+                                                    format!("{id:02} · {label}"),
+                                                );
+                                            }
+                                        });
+                                    if effect != state.effect {
+                                        state.effect = effect;
+                                    }
+                                    let mut raw = state.effect as u32;
+                                    if ui
+                                        .add(
+                                            egui::DragValue::new(&mut raw)
+                                                .range(0..=255)
+                                                .speed(0.2)
+                                                .prefix("ID "),
+                                        )
+                                        .changed()
+                                    {
+                                        state.effect = raw as u8;
+                                    }
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("Luminosité").size(10.0).color(MUTED));
+                                    ui.add(
+                                        egui::Slider::new(&mut state.brightness, 0..=255)
+                                            .show_value(true),
+                                    );
+                                    ui.label(RichText::new("Vitesse").size(10.0).color(MUTED));
+                                    ui.add(
+                                        egui::Slider::new(&mut state.speed, 0..=255)
+                                            .show_value(true),
+                                    );
+                                });
+                                ui.horizontal(|ui| {
+                                    ui.label(RichText::new("Teinte").size(10.0).color(MUTED));
+                                    ui.add(
+                                        egui::Slider::new(&mut state.hue, 0..=255)
+                                            .show_value(true),
+                                    );
+                                    ui.label(RichText::new("Saturation").size(10.0).color(MUTED));
+                                    ui.add(
+                                        egui::Slider::new(&mut state.saturation, 0..=255)
+                                            .show_value(true),
+                                    );
+                                    let color = hsv_to_rgb(
+                                        state.hue as f32 / 255.0,
+                                        state.saturation as f32 / 255.0,
+                                        1.0,
+                                    );
+                                    let (rect, _) = ui.allocate_exact_size(
+                                        Vec2::new(40.0, 18.0),
+                                        Sense::hover(),
+                                    );
+                                    ui.painter().rect_filled(
+                                        rect,
+                                        CornerRadius::same(3),
+                                        Color32::from_rgb(color[0], color[1], color[2]),
+                                    );
+                                });
+                                ui.label(
+                                    RichText::new(
+                                        "Contrôle global RGB Matrix. Le per-key n'est pas exposé par le firmware QMK/VIA ; l'édition per-touche reste réservée au firmware EVision d'usine.",
+                                    )
+                                    .size(9.5)
+                                    .color(MUTED),
+                                );
+                                ui.horizontal(|ui| {
+                                    if ui.button("Lire").clicked() {
+                                        read = true;
+                                    }
+                                    if ui.button("Appliquer").clicked() {
+                                        apply = true;
+                                    }
+                                    if ui.button("Sauvegarder").clicked() {
+                                        save = true;
+                                    }
+                                    if ui.button("Déconnecter").clicked() {
+                                        disconnect = true;
+                                    }
+                                });
+                            }
+                            if !self.qmk_status.is_empty() {
+                                ui.label(
+                                    RichText::new(&self.qmk_status)
+                                        .size(10.0)
+                                        .color(Color32::from_rgb(90, 90, 90)),
+                                );
+                            }
+                        });
+                    self.qmk_state = state;
+                    if connect {
+                        self.connect_qmk();
+                    }
+                    if read {
+                        self.read_qmk();
+                    }
+                    if apply {
+                        self.apply_qmk();
+                    }
+                    if save {
+                        self.save_qmk();
+                    }
+                    if disconnect {
+                        self.qmk = None;
+                        self.qmk_status = "QMK/VIA déconnecté.".to_string();
+                    }
+                    ui.add_space(6.0);
+                }
+
                 ui.add_space(6.0);
                 egui::Frame::new()
                     .fill(Color32::from_rgb(246, 246, 246))
@@ -4059,7 +4328,7 @@ impl App {
                     .show(ui, |ui| {
                         ui.label(
                             RichText::new(
-                                "Aucun flash n'est effectué par cette application. SonixFlasherC est un outil séparé fourni par le fabricant : il n'est ni inclus, ni lancé ici. Les claviers reflashés QMK/VIA et les modèles EVision non répertoriés sont détectés en lecture seule.",
+                                "Aucun flash n'est effectué par cette application. SonixFlasherC est un outil séparé fourni par le fabricant : il n'est ni inclus, ni lancé ici. Les claviers reflashés QMK/VIA sont détectés et leur éclairage global est pilotable via VIA ; le per-key reste propre au firmware EVision d'usine.",
                             )
                             .size(10.0)
                             .color(Color32::from_rgb(90, 90, 90)),
