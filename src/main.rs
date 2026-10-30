@@ -651,6 +651,26 @@ fn hsv_to_rgb(h: f32, s: f32, v: f32) -> [u8; 3] {
     ]
 }
 
+fn rgb_to_hsv(rgb: [u8; 3]) -> (f32, f32, f32) {
+    let r = rgb[0] as f32 / 255.0;
+    let g = rgb[1] as f32 / 255.0;
+    let b = rgb[2] as f32 / 255.0;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    let delta = max - min;
+    let hue = if delta <= f32::EPSILON {
+        0.0
+    } else if max == r {
+        ((g - b) / delta).rem_euclid(6.0) / 6.0
+    } else if max == g {
+        ((b - r) / delta + 2.0) / 6.0
+    } else {
+        ((r - g) / delta + 4.0) / 6.0
+    };
+    let saturation = if max <= f32::EPSILON { 0.0 } else { delta / max };
+    (hue.rem_euclid(1.0), saturation, max)
+}
+
 fn preview_hash(index: usize, tick: f32) -> f32 {
     let mut value =
         (index as u32).wrapping_mul(0x9E37_79B1) ^ (tick as u32).wrapping_mul(0x85EB_CA6B);
@@ -1813,7 +1833,33 @@ impl App {
                 }
             }
         }
+        app.auto_connect_qmk();
         app
+    }
+
+    /// Ouvre l'interface VIA dès qu'un clavier QMK est présent : l'éclairage
+    /// global est alors éditable directement dans la page Éclairage.
+    fn auto_connect_qmk(&mut self) {
+        if self.controller.is_some() || self.qmk.is_some() {
+            return;
+        }
+        if self
+            .devices
+            .iter()
+            .any(|device| device.kind == devices::DeviceKind::QmkRawHid)
+        {
+            self.connect_qmk();
+        }
+    }
+
+    fn qmk_present(&self) -> bool {
+        self.devices
+            .iter()
+            .any(|device| device.kind == devices::DeviceKind::QmkRawHid)
+    }
+
+    fn qmk_active(&self) -> bool {
+        self.controller.is_none() && self.qmk.is_some()
     }
 
     fn snapshot(&self) -> ProfileSnapshot {
@@ -2963,6 +3009,7 @@ impl App {
                 }
             }
         }
+        self.auto_connect_qmk();
     }
 
     fn sidebar(&mut self, ui: &mut egui::Ui) {
@@ -3025,17 +3072,27 @@ impl App {
         ui.label(RichText::new("PROFIL").size(9.5).strong().color(MUTED));
         ui.add_space(2.0);
 
+        let profiles_enabled = self.qmk.is_none();
         let mut new_profile = self.profile;
-        egui::ComboBox::from_id_salt("profile_combo")
-            .width(168.0)
-            .selected_text(format!("Profil {}", self.profile + 1))
-            .show_ui(ui, |ui| {
-                for i in 0..10u8 {
-                    ui.selectable_value(&mut new_profile, i, format!("Profil {}", i + 1));
-                }
-            });
-        if new_profile != self.profile {
+        ui.add_enabled_ui(profiles_enabled, |ui| {
+            egui::ComboBox::from_id_salt("profile_combo")
+                .width(168.0)
+                .selected_text(format!("Profil {}", self.profile + 1))
+                .show_ui(ui, |ui| {
+                    for i in 0..10u8 {
+                        ui.selectable_value(&mut new_profile, i, format!("Profil {}", i + 1));
+                    }
+                });
+        });
+        if profiles_enabled && new_profile != self.profile {
             self.switch_profile(new_profile);
+        }
+        if !profiles_enabled {
+            ui.label(
+                RichText::new("Profils EVision indisponibles sur QMK/VIA")
+                    .size(9.0)
+                    .color(Color32::from_rgb(130, 130, 130)),
+            );
         }
 
         ui.add_space(18.0);
@@ -3071,16 +3128,24 @@ impl App {
                         .color(Color32::WHITE),
                 );
                 ui.label(
-                    RichText::new("Jeu de couleurs EVision")
-                        .size(10.0)
-                        .color(MUTED),
+                    RichText::new(if self.qmk.is_some() {
+                        "Éclairage global QMK/VIA"
+                    } else {
+                        "Jeu de couleurs EVision"
+                    })
+                    .size(10.0)
+                    .color(MUTED),
                 );
             });
         ui.add_space(8.0);
         ui.label(
-            RichText::new("Berserker BYGG TKL · 126 zones")
-                .size(9.5)
-                .color(Color32::from_rgb(110, 110, 110)),
+            RichText::new(if self.qmk.is_some() {
+                "Berserker BYGG TKL · QMK/VIA"
+            } else {
+                "Berserker BYGG TKL · 126 zones"
+            })
+            .size(9.5)
+            .color(Color32::from_rgb(110, 110, 110)),
         );
     }
 
@@ -3231,6 +3296,119 @@ impl App {
         ]
     }
 
+    /// Aperçu de l'éclairage RGB Matrix QMK. Il distingue les effets qui
+    /// utilisent la teinte configurée de ceux qui font défiler un arc-en-ciel :
+    /// l'aperçu ne montre donc plus un vert fixe quand un cycle tourne.
+    fn qmk_preview_palette(&self, time: f32) -> Vec<[u8; 3]> {
+        use std::f32::consts::TAU;
+        let state = self.qmk_state;
+        let (hue, saturation, _) = rgb_to_hsv(self.rgb);
+        let bright = if state.brightness == 0 {
+            0.0
+        } else {
+            state.brightness as f32 / 255.0
+        };
+        let speed = 0.2 + state.speed as f32 / 255.0 * 2.4;
+        let t = time * speed;
+        let tint = |factor: f32| hsv_to_rgb(hue, saturation, (bright * factor).clamp(0.0, 1.0));
+        let rainbow =
+            |h: f32, factor: f32| hsv_to_rgb(h, 1.0, (bright * factor).clamp(0.0, 1.0));
+        let mut colors = vec![[0u8; 3]; protocol::LED_COUNT];
+        if state.effect == 0 {
+            return colors;
+        }
+        for key in &self.keys {
+            if key.pos >= protocol::LED_COUNT {
+                continue;
+            }
+            let x = ((key.x - layout::BODY_X) / layout::TOTAL_W).clamp(0.0, 1.0);
+            let y = ((key.y - layout::BODY_Y) / layout::TOTAL_H).clamp(0.0, 1.0);
+            let dx = x - 0.5;
+            let dy = y - 0.5;
+            let radius = (dx * dx + dy * dy).sqrt();
+            let angle = dy.atan2(dx) / TAU + 0.5;
+            let pulse = 0.15 + 0.85 * (0.5 + 0.5 * (t * 2.0).sin());
+            let color = match state.effect {
+                1 => tint(1.0),
+                2 => tint(if key.label.is_empty() { 0.45 } else { 1.0 }),
+                3 => tint(0.1 + (1.0 - y) * 0.9),
+                4 => tint(0.1 + x * 0.9),
+                5 => tint(pulse),
+                6 => {
+                    let band = 0.5 + 0.5 * (x * 5.0 * TAU - t * 2.0).sin();
+                    hsv_to_rgb(hue, band.clamp(0.0, 1.0), bright)
+                }
+                7 => tint(0.15 + 0.85 * (0.5 + 0.5 * (x * 5.0 * TAU - t * 2.0).sin())),
+                8 | 9 => {
+                    let band =
+                        (0.5 + 0.5 * (angle * TAU + radius * 12.0 - t * 2.0).sin()).powf(2.0);
+                    tint(0.05 + 0.95 * band)
+                }
+                10 | 11 => {
+                    let band = (0.5 + 0.5 * (angle * 2.0 * TAU + radius * 16.0 - t * 2.0).sin())
+                        .powf(2.0);
+                    tint(0.05 + 0.95 * band)
+                }
+                12 => rainbow(t * 0.12, 1.0),
+                13 => rainbow(x + t * 0.1, 1.0),
+                14 => rainbow(y + t * 0.1, 1.0),
+                15 => rainbow((1.0 - (2.0 * x - 1.0).abs()) * 0.6 + t * 0.1, 1.0),
+                16 | 17 => rainbow(radius * 2.0 + t * 0.12, 1.0),
+                18 => rainbow(angle + t * 0.12, 1.0),
+                19 => rainbow(angle + radius * 2.5 + t * 0.12, 1.0),
+                20 => {
+                    let beacon = (0.5 + 0.5 * (radius * 14.0 - t * 3.0).sin()).powf(3.0);
+                    rainbow(0.08 + beacon * 0.5, 1.0)
+                }
+                21 => rainbow(0.5 + 0.5 * (t * 1.4 + x * TAU).sin(), 1.0),
+                22 => rainbow(angle * 2.0 + t * 0.12, 1.0),
+                23 | 24 => {
+                    let drop = preview_hash(key.pos, (t * 1.6).floor());
+                    if drop > 0.72 {
+                        let h = if state.effect == 24 {
+                            preview_hash(key.pos.wrapping_mul(7), 1.0)
+                        } else {
+                            hue
+                        };
+                        hsv_to_rgb(
+                            h,
+                            1.0,
+                            bright * (1.0 - (drop - 0.72) * 2.0).clamp(0.2, 1.0),
+                        )
+                    } else {
+                        [0, 0, 0]
+                    }
+                }
+                25 => hsv_to_rgb(hue + 0.08 * (t * 2.0).sin(), saturation, bright * pulse),
+                26 => hsv_to_rgb(hue + 0.12 * (x * TAU + t).sin(), saturation, bright),
+                27 => hsv_to_rgb(
+                    hue + 0.1 * ((x + y) * 3.0 * TAU - t).sin(),
+                    saturation,
+                    bright,
+                ),
+                28..=32 => {
+                    let spark = preview_hash(key.pos, (t * 2.0).floor());
+                    if spark > 0.7 {
+                        tint(spark)
+                    } else {
+                        tint(0.06)
+                    }
+                }
+                33..=39 => {
+                    let spark = preview_hash(key.pos, (t * 3.0).floor());
+                    if spark > 0.82 {
+                        tint(1.0)
+                    } else {
+                        tint(0.12)
+                    }
+                }
+                _ => tint(1.0),
+            };
+            colors[key.pos] = color;
+        }
+        colors
+    }
+
     fn refresh_lighting_from_device(&mut self) {
         let Some((state, colors)) = self.read_device_snapshot() else {
             self.status = "Lecture de l'état du clavier impossible.".to_string();
@@ -3244,7 +3422,7 @@ impl App {
         self.status_error = false;
     }
 
-    fn keyboard(&mut self, ui: &mut egui::Ui, colors_available: bool) {
+    fn keyboard(&mut self, ui: &mut egui::Ui, colors_available: bool, editable: bool) {
         let avail = ui.available_width();
         let scale = ((avail - 8.0) / layout::TOTAL_W).clamp(0.95, 1.55);
         let kb_w = layout::TOTAL_W * scale;
@@ -3267,18 +3445,31 @@ impl App {
         );
 
         let origin = body.min;
+        // Sur QMK/VIA, le firmware ne connaît que l'éclairage global : on
+        // montre une projection de l'effet RGB Matrix, jamais les couleurs
+        // EVision stockées localement.
+        let qmk_palette = if self.qmk_active() {
+            let now = ui.ctx().input(|input| input.time) as f32;
+            ui.ctx().request_repaint_after(Duration::from_millis(40));
+            Some(self.qmk_preview_palette(now))
+        } else {
+            None
+        };
         // En mode effet, les couleurs per-touche stockées ne sont pas ce que le
         // clavier affiche : on montre la couleur de base de l'effet en cours.
-        let effect_palette = if self.live_colors.is_none() && self.mode_index != 0 {
+        let effect_palette = if qmk_palette.is_none()
+            && self.live_colors.is_none()
+            && self.mode_index != 0
+        {
             let now = ui.ctx().input(|input| input.time) as f32;
             ui.ctx().request_repaint_after(Duration::from_millis(40));
             Some(self.effect_preview_palette(now))
         } else {
             None
         };
-        let palette = self
-            .live_colors
+        let palette = qmk_palette
             .as_deref()
+            .or(self.live_colors.as_deref())
             .or(effect_palette.as_deref())
             .unwrap_or(self.colors.as_slice());
         let mut hitboxes: Vec<(usize, Rect)> = Vec::with_capacity(self.keys.len());
@@ -3333,7 +3524,7 @@ impl App {
 
             let color = palette.get(key.pos).copied().unwrap_or([0, 0, 0]);
             let lit = color != [0, 0, 0];
-            let selected = self.selected.contains(&index);
+            let selected = editable && self.selected.contains(&index);
             let fill = if selected {
                 Color32::from_rgb(48, 43, 36)
             } else {
@@ -3450,83 +3641,89 @@ impl App {
                 } else {
                     painter.rect_stroke(rect, radius, Stroke::new(2.0, ACCENT), StrokeKind::Inside);
                 }
-            } else if let Some(p) = pointer {
-                if rect.contains(p) || ext.is_some_and(|ext| ext.contains(p)) {
-                    if let Some(ext) = ext {
-                        paint_iso_enter_outline(
-                            &painter,
-                            rect,
-                            ext.left(),
-                            ext.bottom(),
-                            corner,
-                            1.0,
-                            Color32::from_white_alpha(170),
-                        );
-                    } else {
-                        painter.rect_stroke(
-                            rect,
-                            radius,
-                            Stroke::new(1.0, Color32::from_white_alpha(170)),
-                            StrokeKind::Inside,
-                        );
+            } else if editable {
+                if let Some(p) = pointer {
+                    if rect.contains(p) || ext.is_some_and(|ext| ext.contains(p)) {
+                        if let Some(ext) = ext {
+                            paint_iso_enter_outline(
+                                &painter,
+                                rect,
+                                ext.left(),
+                                ext.bottom(),
+                                corner,
+                                1.0,
+                                Color32::from_white_alpha(170),
+                            );
+                        } else {
+                            painter.rect_stroke(
+                                rect,
+                                radius,
+                                Stroke::new(1.0, Color32::from_white_alpha(170)),
+                                StrokeKind::Inside,
+                            );
+                        }
                     }
                 }
             }
         }
 
-        if let Some(p) = pointer {
-            if hitboxes.iter().any(|(_, r)| r.contains(p)) {
-                ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
-            }
-        }
-
-        let ctrl = ui.input(|i| i.modifiers.ctrl);
-
-        if response.drag_started() {
-            if let Some(p) = response.interact_pointer_pos() {
-                self.drag_start = Some(p);
-                self.drag_current = Some(p);
-            }
-        }
-        if response.dragged() {
-            if let Some(p) = response.interact_pointer_pos() {
-                self.drag_current = Some(p);
-            }
-        }
-        if response.drag_stopped() {
-            if let (Some(start), Some(current)) = (self.drag_start, self.drag_current) {
-                let selection = Rect::from_two_pos(start, current);
-                if selection.width() > 3.0 || selection.height() > 3.0 {
-                    apply_rect_selection(&mut self.selected, &hitboxes, selection, ctrl);
+        if editable {
+            if let Some(p) = pointer {
+                if hitboxes.iter().any(|(_, r)| r.contains(p)) {
+                    ui.ctx().set_cursor_icon(CursorIcon::PointingHand);
                 }
             }
-            self.drag_start = None;
-            self.drag_current = None;
-        }
 
-        if response.clicked() {
-            if let Some(p) = response.interact_pointer_pos() {
-                let index = hitboxes
-                    .iter()
-                    .find(|(_, r)| r.contains(p))
-                    .map(|(index, _)| *index);
-                apply_click(&mut self.selected, index, ctrl);
+            let ctrl = ui.input(|i| i.modifiers.ctrl);
+
+            if response.drag_started() {
+                if let Some(p) = response.interact_pointer_pos() {
+                    self.drag_start = Some(p);
+                    self.drag_current = Some(p);
+                }
+            }
+            if response.dragged() {
+                if let Some(p) = response.interact_pointer_pos() {
+                    self.drag_current = Some(p);
+                }
+            }
+            if response.drag_stopped() {
+                if let (Some(start), Some(current)) = (self.drag_start, self.drag_current) {
+                    let selection = Rect::from_two_pos(start, current);
+                    if selection.width() > 3.0 || selection.height() > 3.0 {
+                        apply_rect_selection(&mut self.selected, &hitboxes, selection, ctrl);
+                    }
+                }
+                self.drag_start = None;
+                self.drag_current = None;
+            }
+
+            if response.clicked() {
+                if let Some(p) = response.interact_pointer_pos() {
+                    let index = hitboxes
+                        .iter()
+                        .find(|(_, r)| r.contains(p))
+                        .map(|(index, _)| *index);
+                    apply_click(&mut self.selected, index, ctrl);
+                }
             }
         }
 
-        if let (Some(start), Some(current)) = (self.drag_start, self.drag_current) {
-            let selection = Rect::from_two_pos(start, current);
-            painter.rect_filled(
-                selection,
-                CornerRadius::same(2),
-                Color32::from_rgba_unmultiplied(255, 158, 44, 30),
-            );
-            painter.rect_stroke(
-                selection,
-                CornerRadius::same(2),
-                Stroke::new(1.5, ACCENT),
-                StrokeKind::Inside,
-            );
+        if editable {
+            if let (Some(start), Some(current)) = (self.drag_start, self.drag_current) {
+                let selection = Rect::from_two_pos(start, current);
+                painter.rect_filled(
+                    selection,
+                    CornerRadius::same(2),
+                    Color32::from_rgba_unmultiplied(255, 158, 44, 30),
+                );
+                painter.rect_stroke(
+                    selection,
+                    CornerRadius::same(2),
+                    Stroke::new(1.5, ACCENT),
+                    StrokeKind::Inside,
+                );
+            }
         }
 
         if !colors_available {
@@ -3834,6 +4031,273 @@ impl App {
         );
     }
 
+    /// Même panneau que l'éclairage EVision, branché sur le protocole VIA :
+    /// effet, luminosité, vitesse, couleur et sauvegarde EEPROM. Le per-touche
+    /// n'existe pas dans le firmware QMK/VIA et reste donc absent.
+    fn qmk_lighting_panel(&mut self, ui: &mut egui::Ui) {
+        {
+            let visuals = ui.visuals_mut();
+            visuals.override_text_color = Some(TEXT);
+            visuals.widgets.inactive.bg_fill = Color32::from_rgb(58, 58, 58);
+            visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(58, 58, 58);
+            visuals.widgets.hovered.bg_fill = Color32::from_rgb(74, 74, 74);
+            visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(74, 74, 74);
+            visuals.widgets.active.bg_fill = Color32::from_rgb(88, 88, 88);
+            visuals.widgets.active.weak_bg_fill = Color32::from_rgb(88, 88, 88);
+            visuals.widgets.inactive.fg_stroke.color = Color32::WHITE;
+            visuals.widgets.hovered.fg_stroke.color = Color32::WHITE;
+            visuals.widgets.active.fg_stroke.color = Color32::WHITE;
+            visuals.selection.bg_fill = ACCENT;
+            visuals.selection.stroke.color = Color32::BLACK;
+            visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
+            visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
+            visuals.widgets.active.corner_radius = CornerRadius::same(4);
+        }
+
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new("Réglages éclairage")
+                    .size(13.0)
+                    .strong()
+                    .color(Color32::WHITE),
+            );
+            ui.label(
+                RichText::new("QMK/VIA · RGB Matrix global")
+                    .size(10.0)
+                    .color(Color32::from_rgb(120, 170, 230)),
+            );
+            if let Some(protocol) = self.qmk.as_ref().map(|qmk| qmk.protocol()) {
+                ui.label(
+                    RichText::new(format!("protocole {protocol:#06x}"))
+                        .size(10.0)
+                        .color(OK),
+                );
+            }
+        });
+        ui.add_space(4.0);
+
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.label(RichText::new("Effet").size(10.0).color(MUTED));
+                ui.horizontal(|ui| {
+                    let mut effect = self.qmk_state.effect;
+                    egui::ComboBox::from_id_salt("qmk_panel_effect")
+                        .width(190.0)
+                        .height(430.0)
+                        .selected_text(format!(
+                            "{:02} · {}",
+                            effect,
+                            qmk::effect_label(effect)
+                        ))
+                        .show_ui(ui, |ui| {
+                            for (id, label) in qmk::EFFECTS {
+                                ui.selectable_value(&mut effect, *id, format!("{id:02} · {label}"));
+                            }
+                        });
+                    self.qmk_state.effect = effect;
+                    let mut raw = self.qmk_state.effect as u32;
+                    if ui
+                        .add_sized(
+                            [48.0, 20.0],
+                            egui::DragValue::new(&mut raw)
+                                .range(0..=255)
+                                .speed(0.2)
+                                .prefix("ID "),
+                        )
+                        .changed()
+                    {
+                        self.qmk_state.effect = raw as u8;
+                    }
+                });
+            });
+            ui.add_space(14.0);
+            ui.vertical(|ui| {
+                ui.label(RichText::new("Luminosité").size(10.0).color(MUTED));
+                ui.add_sized(
+                    [145.0, 18.0],
+                    egui::Slider::new(&mut self.qmk_state.brightness, 0..=255).show_value(true),
+                );
+            });
+            ui.add_space(14.0);
+            ui.vertical(|ui| {
+                ui.label(RichText::new("Vitesse").size(10.0).color(MUTED));
+                ui.add_sized(
+                    [145.0, 18.0],
+                    egui::Slider::new(&mut self.qmk_state.speed, 0..=255).show_value(true),
+                );
+                ui.label(
+                    RichText::new("lent · rapide")
+                        .size(9.0)
+                        .color(Color32::from_rgb(110, 110, 110)),
+                );
+            });
+            ui.add_space(14.0);
+            ui.vertical(|ui| {
+                ui.label(RichText::new("Direction").size(10.0).color(MUTED));
+                ui.label(
+                    RichText::new("non réglable en QMK/VIA")
+                        .size(9.5)
+                        .color(Color32::from_rgb(120, 120, 120)),
+                );
+            });
+        });
+
+        if qmk::effect_ignores_color(self.qmk_state.effect) {
+            ui.label(
+                RichText::new(
+                    "Cet effet n'utilise pas la couleur : la teinte et la saturation sont ignorées (arc-en-ciel ou éteint). Choisir « Couleur unie » pour une couleur fixe.",
+                )
+                .size(10.0)
+                .color(ACCENT),
+            );
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(4.0);
+
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(268.0);
+                ui.label(RichText::new("Couleur").size(10.0).color(MUTED));
+                egui::Grid::new("qmk_palette_grid")
+                    .spacing(Vec2::new(4.0, 4.0))
+                    .show(ui, |ui| {
+                        for (i, color) in PALETTE.iter().enumerate() {
+                            let selected = self.rgb == *color;
+                            let (rect, resp) =
+                                ui.allocate_exact_size(Vec2::new(30.0, 22.0), Sense::click());
+                            paint_color_swatch(ui.painter(), rect, 3, *color, selected);
+                            if resp.clicked() {
+                                self.rgb = *color;
+                                self.qmk_color_changed();
+                            }
+                            if (i + 1) % 8 == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+
+            ui.add_space(18.0);
+            ui.vertical(|ui| {
+                ui.set_width(196.0);
+                ui.label(RichText::new("RGB").size(10.0).color(MUTED));
+                ui.horizontal(|ui| {
+                    let before = self.rgb;
+                    ui.label(RichText::new("R").size(11.0).color(MUTED));
+                    ui.add_sized(
+                        [48.0, 22.0],
+                        egui::DragValue::new(&mut self.rgb[0]).range(0..=255),
+                    );
+                    ui.label(RichText::new("G").size(11.0).color(MUTED));
+                    ui.add_sized(
+                        [48.0, 22.0],
+                        egui::DragValue::new(&mut self.rgb[1]).range(0..=255),
+                    );
+                    ui.label(RichText::new("B").size(11.0).color(MUTED));
+                    ui.add_sized(
+                        [48.0, 22.0],
+                        egui::DragValue::new(&mut self.rgb[2]).range(0..=255),
+                    );
+                    if self.rgb != before {
+                        self.qmk_color_changed();
+                    }
+                });
+                ui.label(
+                    RichText::new(format!(
+                        "#{:02X}{:02X}{:02X} · teinte {} / saturation {}",
+                        self.rgb[0],
+                        self.rgb[1],
+                        self.rgb[2],
+                        (rgb_to_hsv(self.rgb).0 * 255.0).round() as u8,
+                        (rgb_to_hsv(self.rgb).1 * 255.0).round() as u8
+                    ))
+                    .size(10.0)
+                    .color(MUTED),
+                );
+                ui.add_space(4.0);
+                let (rect, _) = ui.allocate_exact_size(Vec2::new(120.0, 38.0), Sense::hover());
+                ui.painter().rect_filled(
+                    rect,
+                    CornerRadius::same(4),
+                    Color32::from_rgb(self.rgb[0], self.rgb[1], self.rgb[2]),
+                );
+                ui.painter().rect_stroke(
+                    rect,
+                    CornerRadius::same(4),
+                    Stroke::new(1.0, Color32::from_gray(110)),
+                    StrokeKind::Inside,
+                );
+                ui.label(RichText::new("Aperçu").size(10.0).color(MUTED));
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Roue").size(10.0).color(MUTED));
+                    let custom_selected = !PALETTE.contains(&self.rgb);
+                    let mut rgb = self.rgb;
+                    if color_well(ui, &mut rgb, custom_selected).changed() {
+                        self.rgb = rgb;
+                        self.qmk_color_changed();
+                    }
+                });
+            });
+
+            ui.add_space(18.0);
+            ui.vertical(|ui| {
+                ui.set_width(238.0);
+                ui.label(RichText::new("Actions").size(10.0).color(MUTED));
+                if ui
+                    .add_sized(
+                        [238.0, 34.0],
+                        egui::Button::new(
+                            RichText::new("Appliquer l'effet")
+                                .strong()
+                                .color(Color32::BLACK),
+                        )
+                        .fill(ACCENT)
+                        .stroke(Stroke::NONE),
+                    )
+                    .clicked()
+                {
+                    self.apply_qmk();
+                }
+                ui.horizontal_wrapped(|ui| {
+                    if ui.button("Couleur unie").clicked() {
+                        self.set_qmk_solid_color();
+                    }
+                    if ui.button("Relire").clicked() {
+                        self.read_qmk();
+                    }
+                    if ui.button("Sauvegarder").clicked() {
+                        self.save_qmk();
+                    }
+                });
+                ui.label(
+                    RichText::new(
+                        "Appliquer envoie l'état au clavier ; Sauvegarder le conserve dans l'EEPROM après débranchement.",
+                    )
+                    .size(9.0)
+                    .color(MUTED),
+                );
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(
+                        "Le per-touche n'est pas exposé par le firmware QMK/VIA ; il reste réservé au firmware EVision d'usine.",
+                    )
+                    .size(9.0)
+                    .color(MUTED),
+                );
+            });
+        });
+
+        ui.add_space(6.0);
+        ui.label(
+            RichText::new(&self.qmk_status)
+                .size(11.0)
+                .color(Color32::from_rgb(190, 190, 190)),
+        );
+    }
+
     fn refresh_macros(&mut self) {
         let mut entries = scan_macros(&self.macros_dir, "Berserker RGB");
         if !self.factory_macros_dir.as_os_str().is_empty() {
@@ -3957,6 +4421,13 @@ impl App {
         match lighting.read_state() {
             Ok(state) => {
                 self.qmk_state = state;
+                // La couleur VIA est stockée en teinte/saturation : on la
+                // reprojette dans la palette RGB de la page Éclairage.
+                self.rgb = hsv_to_rgb(
+                    state.hue as f32 / 255.0,
+                    state.saturation as f32 / 255.0,
+                    1.0,
+                );
                 self.qmk_status = format!("QMK/VIA lu · protocole {:#06x}", lighting.protocol());
             }
             Err(err) => {
@@ -3966,20 +4437,55 @@ impl App {
         }
     }
 
+    /// Synchronise la couleur RGB de l'interface vers teinte/saturation VIA.
+    fn qmk_sync_color(&mut self) {
+        let (hue, saturation, _) = rgb_to_hsv(self.rgb);
+        self.qmk_state.hue = (hue * 255.0).round().clamp(0.0, 255.0) as u8;
+        self.qmk_state.saturation = (saturation * 255.0).round().clamp(0.0, 255.0) as u8;
+    }
+
+    /// Une couleur fixe n'a de sens que sur « Couleur unie » : les effets
+    /// arc-en-ciel et l'extinction ignorent la teinte configurée.
+    fn qmk_color_changed(&mut self) {
+        if qmk::effect_ignores_color(self.qmk_state.effect) {
+            self.qmk_state.effect = qmk::SOLID_COLOR_EFFECT;
+            self.qmk_status = format!(
+                "Couleur choisie : effet « {} » sélectionné (l'ancien effet ignorait la teinte). Cliquez Appliquer.",
+                qmk::effect_label(qmk::SOLID_COLOR_EFFECT)
+            );
+        }
+    }
+
     fn apply_qmk(&mut self) {
+        self.qmk_sync_color();
         let Some(lighting) = self.qmk.as_ref() else {
             self.qmk_status = "QMK/VIA non connecté.".to_string();
             return;
         };
-        match lighting.apply(self.qmk_state) {
+        let state = self.qmk_state;
+        match lighting.apply(state) {
             Ok(()) => {
-                self.qmk_status = "Éclairage QMK/VIA appliqué.".to_string();
+                let effect = qmk::effect_label(state.effect);
+                self.qmk_status = format!(
+                    "Appliqué · {effect} · #{:02X}{:02X}{:02X}",
+                    self.rgb[0], self.rgb[1], self.rgb[2]
+                );
+                if qmk::effect_ignores_color(state.effect) {
+                    self.qmk_status.push_str(
+                        " · cet effet ignore la couleur, utilisez « Couleur unie » pour une teinte fixe.",
+                    );
+                }
             }
             Err(err) => {
                 self.qmk_status = format!("Écriture QMK/VIA impossible : {err:#}");
                 app_log(&format!("QMK/VIA écriture erreur : {err:#}"));
             }
         }
+    }
+
+    fn set_qmk_solid_color(&mut self) {
+        self.qmk_state.effect = qmk::SOLID_COLOR_EFFECT;
+        self.apply_qmk();
     }
 
     fn save_qmk(&mut self) {
@@ -4167,12 +4673,9 @@ impl App {
                 {
                     let connected = self.qmk.is_some();
                     let protocol = self.qmk.as_ref().map(|qmk| qmk.protocol());
-                    let mut state = self.qmk_state;
                     let mut connect = false;
-                    let mut read = false;
-                    let mut apply = false;
-                    let mut save = false;
                     let mut disconnect = false;
+                    let mut open_lighting = false;
                     egui::Frame::new()
                         .fill(CARD)
                         .corner_radius(8)
@@ -4200,7 +4703,7 @@ impl App {
                             if !connected {
                                 ui.label(
                                     RichText::new(
-                                        "Contrôle global : luminosité, effet, vitesse, teinte et saturation via le protocole VIA. Aucun flash.",
+                                        "Contrôle global via le protocole VIA. Les réglages se font dans la page Éclairage, comme pour le firmware EVision. Aucun flash.",
                                     )
                                     .size(10.0)
                                     .color(MUTED),
@@ -4223,91 +4726,16 @@ impl App {
                                             .color(OK),
                                     );
                                 }
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Effet").size(10.0).color(MUTED));
-                                    let mut effect = state.effect;
-                                    egui::ComboBox::from_id_salt("qmk_rgb_effect")
-                                        .width(250.0)
-                                        .selected_text(qmk::effect_label(effect))
-                                        .show_ui(ui, |ui| {
-                                            for (id, label) in qmk::EFFECTS {
-                                                ui.selectable_value(
-                                                    &mut effect,
-                                                    *id,
-                                                    format!("{id:02} · {label}"),
-                                                );
-                                            }
-                                        });
-                                    if effect != state.effect {
-                                        state.effect = effect;
-                                    }
-                                    let mut raw = state.effect as u32;
-                                    if ui
-                                        .add(
-                                            egui::DragValue::new(&mut raw)
-                                                .range(0..=255)
-                                                .speed(0.2)
-                                                .prefix("ID "),
-                                        )
-                                        .changed()
-                                    {
-                                        state.effect = raw as u8;
-                                    }
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Luminosité").size(10.0).color(MUTED));
-                                    ui.add(
-                                        egui::Slider::new(&mut state.brightness, 0..=255)
-                                            .show_value(true),
-                                    );
-                                    ui.label(RichText::new("Vitesse").size(10.0).color(MUTED));
-                                    ui.add(
-                                        egui::Slider::new(&mut state.speed, 0..=255)
-                                            .show_value(true),
-                                    );
-                                });
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new("Teinte").size(10.0).color(MUTED));
-                                    ui.add(
-                                        egui::Slider::new(&mut state.hue, 0..=255)
-                                            .show_value(true),
-                                    );
-                                    ui.label(RichText::new("Saturation").size(10.0).color(MUTED));
-                                    ui.add(
-                                        egui::Slider::new(&mut state.saturation, 0..=255)
-                                            .show_value(true),
-                                    );
-                                    let color = hsv_to_rgb(
-                                        state.hue as f32 / 255.0,
-                                        state.saturation as f32 / 255.0,
-                                        1.0,
-                                    );
-                                    let (rect, _) = ui.allocate_exact_size(
-                                        Vec2::new(40.0, 18.0),
-                                        Sense::hover(),
-                                    );
-                                    ui.painter().rect_filled(
-                                        rect,
-                                        CornerRadius::same(3),
-                                        Color32::from_rgb(color[0], color[1], color[2]),
-                                    );
-                                });
                                 ui.label(
                                     RichText::new(
-                                        "Contrôle global RGB Matrix. Le per-key n'est pas exposé par le firmware QMK/VIA ; l'édition per-touche reste réservée au firmware EVision d'usine.",
+                                        "Effet, couleur, luminosité, vitesse et sauvegarde EEPROM sont regroupés dans la page Éclairage. Le per-touche n'est pas exposé par le firmware QMK/VIA.",
                                     )
-                                    .size(9.5)
+                                    .size(10.0)
                                     .color(MUTED),
                                 );
                                 ui.horizontal(|ui| {
-                                    if ui.button("Lire").clicked() {
-                                        read = true;
-                                    }
-                                    if ui.button("Appliquer").clicked() {
-                                        apply = true;
-                                    }
-                                    if ui.button("Sauvegarder").clicked() {
-                                        save = true;
+                                    if ui.button("Ouvrir Éclairage").clicked() {
+                                        open_lighting = true;
                                     }
                                     if ui.button("Déconnecter").clicked() {
                                         disconnect = true;
@@ -4322,18 +4750,11 @@ impl App {
                                 );
                             }
                         });
-                    self.qmk_state = state;
                     if connect {
                         self.connect_qmk();
                     }
-                    if read {
-                        self.read_qmk();
-                    }
-                    if apply {
-                        self.apply_qmk();
-                    }
-                    if save {
-                        self.save_qmk();
+                    if open_lighting {
+                        self.page = Page::Lighting;
                     }
                     if disconnect {
                         self.qmk = None;
@@ -4623,6 +5044,51 @@ impl App {
             let visuals = ui.visuals_mut();
             visuals.override_text_color = Some(Color32::from_rgb(40, 40, 40));
         }
+        if self.qmk_active() {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.label(
+                        RichText::new("Effets superposables")
+                            .size(20.0)
+                            .strong()
+                            .color(Color32::from_rgb(30, 30, 30)),
+                    );
+                    ui.label(
+                        RichText::new("Indisponible sur le firmware QMK/VIA")
+                            .size(11.0)
+                            .color(Color32::from_rgb(110, 110, 110)),
+                    );
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if ui.button("Ouvrir Éclairage").clicked() {
+                        self.page = Page::Lighting;
+                    }
+                });
+            });
+            ui.add_space(10.0);
+            egui::Frame::new()
+                .fill(CARD)
+                .corner_radius(10)
+                .stroke(Stroke::new(1.0, Color32::from_rgb(220, 220, 220)))
+                .inner_margin(egui::Margin::same(14))
+                .show(ui, |ui| {
+                    ui.label(
+                        RichText::new(
+                            "Le firmware QMK/VIA n'expose que l'effet RGB Matrix global (effet, couleur, luminosité, vitesse) via VIA. Il n'offre pas le rendu par touche ni les calques PC de cette page.",
+                        )
+                        .size(11.0)
+                        .color(Color32::from_rgb(70, 70, 70)),
+                    );
+                    ui.label(
+                        RichText::new(
+                            "Les effets superposables (balayage, respiration, réactif, etc.) restent disponibles sur le firmware EVision d'usine. Pour QMK/VIA, utilisez la page Éclairage.",
+                        )
+                        .size(10.0)
+                        .color(MUTED),
+                    );
+                });
+            return;
+        }
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.label(
@@ -4731,7 +5197,7 @@ impl App {
                     .color(MUTED),
                 );
                 ui.add_space(4.0);
-                self.keyboard(ui, self.controller.is_some());
+                self.keyboard(ui, self.controller.is_some(), true);
             });
 
         ui.add_space(10.0);
@@ -5065,15 +5531,27 @@ impl App {
     }
 
     fn central(&mut self, ui: &mut egui::Ui) {
+        egui::ScrollArea::vertical()
+            .id_salt("lighting_scroll")
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                self.central_content(ui);
+            });
+    }
+
+    fn central_content(&mut self, ui: &mut egui::Ui) {
         {
             let visuals = ui.visuals_mut();
             visuals.override_text_color = Some(Color32::from_rgb(40, 40, 40));
         }
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Z)) {
-            self.undo();
-        }
-        if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Y)) {
-            self.redo();
+        let qmk_active = self.qmk_active();
+        if !qmk_active {
+            if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Z)) {
+                self.undo();
+            }
+            if ui.input_mut(|i| i.consume_key(egui::Modifiers::CTRL, egui::Key::Y)) {
+                self.redo();
+            }
         }
 
         ui.horizontal(|ui| {
@@ -5085,28 +5563,29 @@ impl App {
                         .color(Color32::from_rgb(30, 30, 30)),
                 );
                 ui.label(
-                    RichText::new(
-                        "Clic = une touche · Ctrl+clic = ajout/retrait · glisser = sélection rectangulaire",
-                    )
+                    RichText::new(if qmk_active {
+                        "QMK/VIA : effet, couleur, luminosité et vitesse globaux · per-touche non exposé par le firmware"
+                    } else {
+                        "Clic = une touche · Ctrl+clic = ajout/retrait · glisser = sélection rectangulaire"
+                    })
                     .size(11.0)
                     .color(Color32::from_rgb(110, 110, 110)),
                 );
             });
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                let qmk_present = self
-                    .devices
-                    .iter()
-                    .any(|device| device.kind == devices::DeviceKind::QmkRawHid);
+                let qmk_present = self.qmk_present();
                 if ui.button("Reconnecter").clicked() {
                     self.reconnect();
                 }
-                if qmk_present && self.controller.is_none() {
-                    if ui.button("Éclairage QMK").clicked() {
-                        self.page = Page::Devices;
+                if self.controller.is_none() && qmk_present && self.qmk.is_none() {
+                    if ui.button("Connecter QMK").clicked() {
+                        self.connect_qmk();
                     }
                 }
                 let (state, color) = if self.controller.is_some() {
                     ("● Connecté", OK)
+                } else if qmk_active {
+                    ("● QMK/VIA", Color32::from_rgb(90, 150, 230))
                 } else if qmk_present {
                     ("● QMK/VIA détecté", Color32::from_rgb(90, 150, 230))
                 } else {
@@ -5137,31 +5616,58 @@ impl App {
                             .strong()
                             .color(Color32::from_rgb(45, 45, 45)),
                     );
-                    ui.label(
-                        RichText::new(format!(
-                            "{} touche(s) sélectionnée(s)",
-                            self.selected.len()
-                        ))
-                        .size(11.0)
-                        .color(if self.selected.is_empty() {
-                            Color32::from_rgb(130, 130, 130)
-                        } else {
-                            ACCENT
-                        }),
-                    );
+                    if qmk_active {
+                        ui.label(
+                            RichText::new("Aperçu QMK · per-touche non exposé")
+                                .size(11.0)
+                                .color(Color32::from_rgb(90, 150, 230)),
+                        );
+                    } else {
+                        ui.label(
+                            RichText::new(format!(
+                                "{} touche(s) sélectionnée(s)",
+                                self.selected.len()
+                            ))
+                            .size(11.0)
+                            .color(if self.selected.is_empty() {
+                                Color32::from_rgb(130, 130, 130)
+                            } else {
+                                ACCENT
+                            }),
+                        );
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button("Relire").clicked() {
-                            self.refresh_lighting_from_device();
-                        }
-                        if ui.button("Aucune").clicked() {
-                            self.selected.clear();
-                        }
-                        if ui.button("Tout").clicked() {
-                            self.selected = (0..self.keys.len()).collect();
+                        if qmk_active {
+                            if ui.button("Relire QMK").clicked() {
+                                self.read_qmk();
+                            }
+                        } else {
+                            if ui.button("Relire").clicked() {
+                                self.refresh_lighting_from_device();
+                            }
+                            if ui.button("Aucune").clicked() {
+                                self.selected.clear();
+                            }
+                            if ui.button("Tout").clicked() {
+                                self.selected = (0..self.keys.len()).collect();
+                            }
                         }
                     });
                 });
-                if self.mode_index != 0 && self.live.is_none() {
+                if qmk_active {
+                    ui.label(
+                        RichText::new(format!(
+                            "Aperçu de l'effet QMK « {} » · #{:02X}{:02X}{:02X} · luminosité {}.",
+                            qmk::effect_label(self.qmk_state.effect),
+                            self.rgb[0],
+                            self.rgb[1],
+                            self.rgb[2],
+                            self.qmk_state.brightness
+                        ))
+                        .size(10.5)
+                        .color(MUTED),
+                    );
+                } else if self.mode_index != 0 && self.live.is_none() {
                     let base = self.effect_preview_color();
                     ui.label(
                         RichText::new(format!(
@@ -5173,8 +5679,8 @@ impl App {
                     );
                 }
                 ui.add_space(4.0);
-                let available = self.controller.is_some();
-                self.keyboard(ui, available);
+                let available = self.controller.is_some() || qmk_active;
+                self.keyboard(ui, available, !qmk_active);
             });
 
         ui.add_space(10.0);
@@ -5184,21 +5690,44 @@ impl App {
             .corner_radius(10)
             .inner_margin(egui::Margin::same(14))
             .show(ui, |ui| {
-                self.lighting_panel(ui);
+                if qmk_active {
+                    self.qmk_lighting_panel(ui);
+                } else {
+                    self.lighting_panel(ui);
+                }
             });
+
+        if !qmk_active && self.qmk.is_none() && self.qmk_present() && !self.qmk_status.is_empty() {
+            ui.add_space(6.0);
+            let lower = self.qmk_status.to_lowercase();
+            let error = lower.contains("refus") || lower.contains("impossible");
+            ui.label(
+                RichText::new(&self.qmk_status)
+                    .size(10.0)
+                    .color(if error { ERR } else { MUTED }),
+            );
+        }
 
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new("EVision V2 · configuration uniquement · aucun flash firmware")
-                    .size(10.0)
-                    .color(Color32::from_rgb(140, 140, 140)),
+                RichText::new(if qmk_active {
+                    "QMK/VIA · configuration uniquement · aucun flash firmware"
+                } else {
+                    "EVision V2 · configuration uniquement · aucun flash firmware"
+                })
+                .size(10.0)
+                .color(Color32::from_rgb(140, 140, 140)),
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
-                    RichText::new("Berserker · 320F:5041")
-                        .size(10.0)
-                        .color(Color32::from_rgb(160, 160, 160)),
+                    RichText::new(if qmk_active {
+                        "Berserker · 320F:5042"
+                    } else {
+                        "Berserker · 320F:5041"
+                    })
+                    .size(10.0)
+                    .color(Color32::from_rgb(160, 160, 160)),
                 );
             });
         });
@@ -5697,6 +6226,38 @@ mod tests {
         assert!(keys.iter().any(|k| k.pos == 111));
         assert!(keys.iter().any(|k| k.label == "Inser" && k.pos == 35));
         assert!(keys.iter().all(|k| k.pos < protocol::LED_COUNT));
+    }
+
+    #[test]
+    fn conversion_hsv_rgb_sans_derive() {
+        for rgb in [
+            [255, 0, 0],
+            [0, 255, 0],
+            [0, 0, 255],
+            [255, 96, 0],
+            [128, 255, 0],
+            [255, 255, 255],
+            [0, 0, 0],
+        ] {
+            let (h, s, v) = rgb_to_hsv(rgb);
+            let back = hsv_to_rgb(h, s, v);
+            for channel in 0..3 {
+                let delta = (back[channel] as i16 - rgb[channel] as i16).abs();
+                assert!(delta <= 2, "{rgb:?} -> {back:?} (écart {delta})");
+            }
+        }
+        assert_eq!(rgb_to_hsv([255, 255, 255]).1, 0.0);
+        assert_eq!(rgb_to_hsv([0, 0, 0]).1, 0.0);
+    }
+
+    #[test]
+    fn effets_arc_en_ciel_ignorent_la_couleur() {
+        assert!(qmk::effect_ignores_color(0));
+        assert!(qmk::effect_ignores_color(13));
+        assert!(qmk::effect_ignores_color(24));
+        assert!(!qmk::effect_ignores_color(1));
+        assert!(!qmk::effect_ignores_color(25));
+        assert!(!qmk::effect_ignores_color(33));
     }
 
     #[test]

@@ -16,6 +16,8 @@ pub const RGB_VALUE_EFFECT: u8 = 2;
 pub const RGB_VALUE_SPEED: u8 = 3;
 pub const RGB_VALUE_COLOR: u8 = 4;
 
+pub const SOLID_COLOR_EFFECT: u8 = 1;
+
 const REPORT_SIZE: usize = 32;
 
 #[derive(Clone, Copy, Debug)]
@@ -315,4 +317,11 @@ pub fn effect_label(id: u8) -> &'static str {
         .find(|(value, _)| *value == id)
         .map(|(_, label)| *label)
         .unwrap_or("Effet QMK (ID personnalisé)")
+}
+
+/// Effets qui n'utilisent pas la teinte configurée : éteint et animations
+/// arc-en-ciel (cycle, balises, gouttes). Y régler la couleur ne change rien
+/// au rendu ; il faut « Couleur unie » pour une couleur fixe.
+pub fn effect_ignores_color(id: u8) -> bool {
+    id == 0 || (12..=24).contains(&id)
 }

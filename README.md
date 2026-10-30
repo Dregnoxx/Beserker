@@ -3,7 +3,7 @@
   <h1>Berserker RGB</h1>
   <p><strong>Contrôle RGB per-touche et configuration du clavier Berserker BYGG.</strong></p>
   <p>
-    <img alt="Version" src="https://img.shields.io/badge/version-1.3.2--alpha-orange">
+    <img alt="Version" src="https://img.shields.io/badge/version-1.3.3--alpha-orange">
     <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
     <img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black">
     <img alt="Rust" src="https://img.shields.io/badge/Rust-1.95%2B-000000?logo=rust">
@@ -17,7 +17,7 @@
   </p>
 </div>
 
-> **Statut : alpha (v1.3.2).** Application testée sur le clavier Berserker BYGG
+> **Statut : alpha (v1.3.3).** Application testée sur le clavier Berserker BYGG
 > `320F:5041` (EVision V2, 126 zones LED) sous Windows 10/11 x86_64. Le binaire
 > Linux x86_64 est fourni compilé ; valider l'accès hidraw et le rendu sur votre
 > distribution.
@@ -100,9 +100,15 @@ configuration est créé avant la première modification.
   - bootloader ISP Sonix (`0C45`, PIDs SN32F2xx/SN34F2xx) ;
   - interface brute QMK/VIA d'un clavier reflashé (usage `FF60:0061`).
 - Pour un clavier **QMK/VIA**, contrôle global RGB Matrix via le protocole
-  VIA (canal 3) : luminosité, effet, vitesse, teinte, saturation, lecture et
-  sauvegarde EEPROM. Les IDs d'effets sont ceux de QMK ; le per-key n'est pas
-  exposé par le firmware.
+  VIA (canal 3) : effet, luminosité, vitesse, couleur, lecture et sauvegarde
+  EEPROM. Les IDs d'effets sont ceux de QMK ; le per-key n'est pas exposé par
+  le firmware.
+- L'interface VIA est ouverte automatiquement au démarrage. Les réglages QMK
+  se font dans la page **Éclairage**, avec la même disposition que l'EVision :
+  liste d'effets avec ID brut, curseurs, palette, saisie RGB et roue.
+- L'aperçu distingue les effets qui utilisent la couleur des animations
+  arc-en-ciel (IDs 12-24). Choisir une couleur bascule automatiquement sur
+  **Couleur unie** (ID 1) ; une saturation nulle correspond au blanc.
 - VID/PID, usage HID, nom produit, chemin et puce Sonix éventuelle sont
   affichés ; les informations sont copiables.
 - L'édition RGB per-touche reste centrée sur le Berserker BYGG TKL EVision.
@@ -113,7 +119,7 @@ configuration est créé avant la première modification.
 
 - Interface native egui, une seule fenêtre, sans console.
 - Windows : rendu Direct3D 12 (GPU ou WARP), CRT statique, aucun runtime à
-  installer. Icône, version de fichier 1.3.2.0 et manifeste embarqués
+  installer. Icône, version de fichier 1.3.3.0 et manifeste embarqués
   (PerMonitorV2, asInvoker, long paths).
 - Linux : rendu OpenGL 2.0 via X11/XWayland.
 - CLI de diagnostic et de configuration pour les scripts.
@@ -137,10 +143,15 @@ configuration est créé avant la première modification.
 | Windows 10/11 x86_64 | `berserker-rgb.exe` autonome | Direct3D 12 (GPU ou WARP) |
 | Linux x86_64 | AppImage ou `tar.gz` | X11/XWayland + OpenGL 2.0 |
 
-Clavier RGB pris en charge : **Berserker BYGG, USB `320F:5041`**, firmware
-EVision V2. Les autres appareils EVision, les claviers QMK/VIA et les
-bootloaders Sonix sont détectés en lecture seule, mais leur édition RGB n'est
-pas implémentée.
+Claviers pris en charge :
+
+- **Berserker BYGG, USB `320F:5041`**, firmware EVision V2 : édition RGB
+  per-touche, profils et effets superposables.
+- **Berserker BYGG, USB `320F:5042`**, firmware QMK/VIA : éclairage RGB
+  Matrix global (effet, couleur, luminosité, vitesse) dans la page Éclairage.
+
+Les autres appareils EVision et les bootloaders Sonix sont détectés en lecture
+seule.
 
 ## Téléchargement et lancement
 
@@ -301,6 +312,11 @@ packaging/         règle udev et lanceur Linux
   protocoles et layouts RGB ne sont pas implémentés.
 - Les claviers QMK/VIA exposent un contrôle RGB Matrix global, pas le
   per-key ; les IDs d'effets peuvent varier selon la compilation du firmware.
+- Effets QMK sans couleur : Désactivé (0) et les animations arc-en-ciel
+  (12-24) ignorent la teinte et la saturation. L'interface le signale et
+  bascule sur **Couleur unie** (1) dès qu'une couleur est choisie.
+- En mode QMK/VIA, les profils EVision et les calques PC ne sont pas
+  disponibles : le firmware ne gère que l'éclairage global.
 - Aucun flash de firmware n'est proposé. SonixFlasherC n'est ni inclus ni
   lancé par l'application.
 - Les calques d'effets sont animés par l'application sur le PC. En fenêtre
@@ -332,9 +348,12 @@ editing, 10 full profiles, 12 firmware effects plus a custom mode, up to 8
 PC-side stacked effects over selected keys, polling, debounce, game mode,
 arrow mode and anti-ghosting settings, a local macro file library, undo/redo
 and CLI diagnostics. A **Devices** page detects factory EVision, other EVision
-models, Sonix ISP bootloaders and QMK/VIA interfaces; QMK keyboards get global
-RGB Matrix controls through the VIA protocol (brightness, effect, speed, hue,
-saturation and EEPROM save). Per-key editing remains EVision-only.
+models, Sonix ISP bootloaders and QMK/VIA interfaces. QMK keyboards get global
+RGB Matrix controls through the VIA protocol (effect, brightness, speed, color
+and EEPROM save) inside the Lighting page, with the same layout as EVision.
+The VIA interface is opened automatically, rainbow effects (IDs 12-24) are
+previewed as such, and picking a color switches to Solid Color (ID 1).
+Per-key editing remains EVision-only.
 
 Windows builds use Direct3D 12 (GPU or WARP) with a static CRT and no external
 DLLs. Linux builds use X11/XWayland and OpenGL 2.0. The app only sends EVision

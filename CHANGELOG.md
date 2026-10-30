@@ -3,6 +3,32 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.3.3 — 2026-10-30
+
+### Ajouté
+
+- Éclairage QMK/VIA intégré à la page **Éclairage** : liste d'effets avec ID
+  brut, luminosité, vitesse, palette, saisie RGB, roue chromatique,
+  application et sauvegarde EEPROM.
+- Connexion automatique de l'interface VIA au démarrage.
+- Bouton **Couleur unie** et bascule automatique vers l'effet 1 lorsqu'une
+  couleur est choisie sur un effet arc-en-ciel.
+- Aperçu QMK animé par type d'effet : les cycles et balises arc-en-ciel ne
+  sont plus affichés comme une couleur fixe.
+
+### Modifié
+
+- Page **Claviers** QMK : diagnostic, connexion/déconnexion et accès direct à
+  la page Éclairage ; les curseurs dupliqués sont retirés.
+- Page Éclairage défilante pour les fenêtres courtes.
+- Profils EVision et effets superposables PC désactivés en mode QMK/VIA.
+- Version de fichier Windows 1.3.3.0.
+
+### Corrigé
+
+- Une couleur fixe n'est plus appliquée silencieusement sur un effet qui
+  ignore la teinte ; une saturation nulle correspond au blanc.
+
 ## 1.3.2 — 2026-10-30
 
 ### Corrigé

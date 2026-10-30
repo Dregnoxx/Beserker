@@ -58,7 +58,7 @@ impl DeviceKind {
                 "Bootloader Sonix détecté. SonixFlasherC est un outil séparé : ni inclus, ni lancé par cette app."
             }
             Self::QmkRawHid => {
-                "Firmware QMK/VIA détecté. Éclairage global RGB Matrix disponible dans cette page ; per-key non exposé par le firmware."
+                "Firmware QMK/VIA détecté. Éclairage global RGB Matrix éditable dans la page Éclairage ; per-key non exposé par le firmware."
             }
         }
     }
@@ -309,7 +309,7 @@ pub fn detection_hint(devices: &[DeviceInfo]) -> Option<String> {
         .any(|device| device.kind == DeviceKind::QmkRawHid)
     {
         return Some(
-            "Clavier QMK/VIA détecté · éclairage global disponible dans Claviers.".to_string(),
+            "Clavier QMK/VIA détecté · éclairage global éditable dans Éclairage.".to_string(),
         );
     }
     if devices
