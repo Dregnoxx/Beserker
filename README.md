@@ -254,7 +254,10 @@ src/main.rs        interface egui, profils, effets, macros, CLI
 src/protocol.rs    protocole EVision V2 (configuration et frames directes)
 src/layout.rs      disposition TKL AZERTY et mapping des 126 zones
 src/linux_hid.rs   accès hidraw sous Linux
+build.rs           ressources Windows (icône, version, manifeste)
+resources/         icône .ico et manifeste de l'exe Windows
 docs/PROTOCOL.md   notes techniques du protocole et des formats
+docs/WINDOWS.md    métadonnées et signature Authenticode
 packaging/         règle udev et lanceur Linux
 ```
 
