@@ -3,6 +3,24 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.1.7 — 2026-10-30
+
+### Corrigé
+
+- Fenêtre réduite ou masquée : un rendu d'arrière-plan indépendant des passes
+  egui continue d'envoyer les frames directes ; l'animation des calques reste
+  active.
+- Fermeture : interception de la demande de fermeture dans l'interface et
+  publication de la dernière image en couleurs per-touche avant l'arrêt, en
+  plus du repli `on_exit`.
+- Une image de secours reste publiée à l'activation et à la réduction pour
+  couvrir l'indisponibilité du rendu d'arrière-plan.
+
+### Ajouté
+
+- Journal `berserker-rgb.log` : démarrage, effets, réduction, ouverture du
+  worker, fermeture et erreurs HID.
+
 ## 1.1.6 — 2026-10-30
 
 ### Corrigé

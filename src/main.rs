@@ -13,7 +13,11 @@ use egui::{
 };
 use protocol::{Controller, MODES};
 use std::collections::HashSet;
+use std::io::Write;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const LIGHT_BG: Color32 = Color32::from_rgb(242, 242, 242);
@@ -318,6 +322,16 @@ struct LiveRuntime {
     last_frame: Instant,
 }
 
+/// Rendu d'arrière-plan utilisé quand la fenêtre est réduite ou masquée :
+/// les passes egui s'arrêtent, mais ce thread continue à envoyer les frames
+/// directes pour garder l'animation sur le clavier.
+struct HiddenWorker {
+    stop: Arc<AtomicBool>,
+    handle: Option<JoinHandle<()>>,
+    last_frame: Arc<Mutex<Vec<[u8; 3]>>>,
+    error: Arc<Mutex<Option<String>>>,
+}
+
 #[cfg(windows)]
 fn app_data_dir() -> PathBuf {
     std::env::var_os("LOCALAPPDATA")
@@ -356,6 +370,22 @@ fn timestamp() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0)
+}
+
+/// Journal local de diagnostic (événements d'effets et de fermeture).
+/// Les erreurs d'écriture du journal sont ignorées : il ne doit jamais
+/// perturber le contrôle du clavier.
+fn app_log(message: &str) {
+    let dir = app_data_dir();
+    let _ = std::fs::create_dir_all(&dir);
+    let path = dir.join("berserker-rgb.log");
+    if let Ok(mut file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        let _ = writeln!(file, "[{}] {message}", timestamp());
+    }
 }
 
 /// État complet d'un profil, à la manière du logiciel d'usine : les couleurs
@@ -1687,6 +1717,8 @@ struct App {
     live: Option<LiveRuntime>,
     live_colors: Option<Vec<[u8; 3]>>,
     window_hidden: bool,
+    hidden_worker: Option<HiddenWorker>,
+    close_guard_done: bool,
     polling_index: usize,
     debounce_index: usize,
     win_lock: bool,
@@ -1727,6 +1759,8 @@ impl App {
             live: None,
             live_colors: None,
             window_hidden: false,
+            hidden_worker: None,
+            close_guard_done: false,
             polling_index: 0,
             debounce_index: 0,
             win_lock: false,
@@ -1740,6 +1774,11 @@ impl App {
         let _ = std::fs::create_dir_all(&app.backup_dir);
         let _ = std::fs::create_dir_all(&app.profile_dir);
         let _ = std::fs::create_dir_all(&app.macros_dir);
+        app_log(&format!(
+            "démarrage v{} · profils {:?}",
+            env!("CARGO_PKG_VERSION"),
+            app.profile_dir
+        ));
         app.refresh_macros();
 
         match Controller::open() {
@@ -2356,7 +2395,9 @@ impl App {
     /// Arrête le rendu PC et rend la main au firmware. Les calques sont
     /// conservés : ils peuvent être relancés ou restent enregistrés au profil.
     fn stop_live(&mut self) {
+        self.stop_hidden_worker(false);
         if self.live.take().is_some() {
+            app_log("stop_live");
             if let Some(controller) = &self.controller {
                 let _ = controller.end_direct();
             }
@@ -2428,6 +2469,7 @@ impl App {
         if self.layers.is_empty() {
             return false;
         }
+        self.stop_hidden_worker(true);
         let Some(colors) = self.live_frame_colors() else {
             return false;
         };
@@ -2441,11 +2483,13 @@ impl App {
                 self.live_colors = None;
                 self.status = "Dernière image des effets figée sur le clavier.".to_string();
                 self.status_error = false;
+                app_log("freeze_live_frame OK");
                 true
             }
             Err(err) => {
                 self.status = format!("Effets PC arrêtés : {err:#}");
                 self.status_error = true;
+                app_log(&format!("freeze_live_frame erreur : {err:#}"));
                 self.stop_live();
                 false
             }
@@ -2470,9 +2514,11 @@ impl App {
             .unwrap_or(0.0);
         let colors = self.compose_live_colors(now);
         if first_frame {
+            app_log(&format!("start_live · {} calque(s)", self.layers.len()));
             if let Err(err) = self.publish_live_snapshot(&colors) {
                 self.status = format!("Image de secours des effets non publiée : {err:#}");
                 self.status_error = true;
+                app_log(&format!("snapshot initial erreur : {err:#}"));
             }
         }
         self.live_colors = Some(colors);
@@ -2563,9 +2609,105 @@ impl App {
         let _ = self.save_profile_files();
     }
 
+    /// Lance un rendu d'arrière-plan indépendant des passes egui. Le thread
+    /// anime les calques avec une seconde ouverture du périphérique HID ;
+    /// l'interface est masquée, donc aucun autre accès HID n'a lieu.
+    fn start_hidden_worker(&mut self) {
+        if self.hidden_worker.is_some() || self.live.is_none() || self.layers.is_empty() {
+            return;
+        }
+        let layers = self.layers.clone();
+        let positions = led_positions(&self.keys);
+        let now = self
+            .live
+            .as_ref()
+            .map(|live| live.started.elapsed().as_secs_f32())
+            .unwrap_or(0.0);
+        // La base est figée pendant la réduction. Les calques, eux, continuent
+        // d'animer ; c'est le cas d'usage principal des effets superposés.
+        let base = self.base_layer_colors(now);
+        let initial = self
+            .live_frame_colors()
+            .unwrap_or_else(|| compose_effect_layers(&layers, now, &base, &positions));
+        let stop = Arc::new(AtomicBool::new(false));
+        let last_frame = Arc::new(Mutex::new(initial));
+        let error = Arc::new(Mutex::new(None));
+        let stop_thread = stop.clone();
+        let last_thread = last_frame.clone();
+        let error_thread = error.clone();
+        let handle = std::thread::spawn(move || {
+            let mut controller = match Controller::open() {
+                Ok(controller) => controller,
+                Err(err) => {
+                    app_log(&format!(
+                        "worker arrière-plan : ouverture HID impossible : {err:#}"
+                    ));
+                    if let Ok(mut slot) = error_thread.lock() {
+                        *slot = Some(format!("ouverture HID : {err:#}"));
+                    }
+                    return;
+                }
+            };
+            let started = Instant::now();
+            while !stop_thread.load(Ordering::Relaxed) {
+                let elapsed = now + started.elapsed().as_secs_f32();
+                let colors = compose_effect_layers(&layers, elapsed, &base, &positions);
+                let data = colors_to_data(&colors);
+                match controller.send_direct_frame(&data) {
+                    Ok(()) => {
+                        if let Ok(mut frame) = last_thread.lock() {
+                            *frame = colors;
+                        }
+                    }
+                    Err(err) => {
+                        app_log(&format!(
+                            "worker arrière-plan : frame directe erreur : {err:#}"
+                        ));
+                        if let Ok(mut slot) = error_thread.lock() {
+                            *slot = Some(format!("frame directe : {err:#}"));
+                        }
+                        break;
+                    }
+                }
+                std::thread::sleep(Duration::from_millis(40));
+            }
+            let _ = controller.end_direct();
+        });
+        app_log("worker arrière-plan démarré");
+        self.hidden_worker = Some(HiddenWorker {
+            stop,
+            handle: Some(handle),
+            last_frame,
+            error,
+        });
+    }
+
+    fn stop_hidden_worker(&mut self, keep_last: bool) {
+        let Some(mut worker) = self.hidden_worker.take() else {
+            return;
+        };
+        app_log("worker arrière-plan arrêt demandé");
+        worker.stop.store(true, Ordering::Relaxed);
+        if let Some(handle) = worker.handle.take() {
+            let _ = handle.join();
+        }
+        if keep_last {
+            if let Ok(frame) = worker.last_frame.lock() {
+                if !frame.is_empty() {
+                    self.live_colors = Some(frame.clone());
+                }
+            }
+        }
+        if let Ok(slot) = worker.error.lock() {
+            if let Some(message) = slot.as_ref() {
+                self.status = format!("Effets en arrière-plan : {message}");
+                self.status_error = true;
+            }
+        }
+    }
+
     /// Quand la fenêtre est réduite ou masquée, les passes egui s'arrêtent.
-    /// On publie l'image courante comme base per-touche pour que le clavier
-    /// garde l'effet au lieu de revenir à l'éclairage de base.
+    /// On publie une image de secours puis on démarre le rendu d'arrière-plan.
     fn handle_window_visibility(&mut self, ctx: &egui::Context) {
         let (minimized, occluded) = ctx.input(|input| {
             let viewport = input.viewport();
@@ -2578,6 +2720,9 @@ impl App {
         if hidden == self.window_hidden {
             return;
         }
+        app_log(&format!(
+            "fenêtre hidden={hidden} (minimized={minimized}, occluded={occluded})"
+        ));
         self.window_hidden = hidden;
         if hidden {
             if self.live.is_none() {
@@ -2597,11 +2742,23 @@ impl App {
             if let Some(live) = self.live.as_mut() {
                 live.last_frame = Instant::now() - Duration::from_millis(60);
             }
+            self.start_hidden_worker();
         } else if self.live.is_some() {
+            self.stop_hidden_worker(true);
             if let Some(live) = self.live.as_mut() {
                 live.last_frame = Instant::now() - Duration::from_millis(60);
             }
             ctx.request_repaint();
+        }
+    }
+
+    fn handle_close_request(&mut self, ctx: &egui::Context) {
+        let close_requested = ctx.input(|input| input.viewport().close_requested());
+        if close_requested && !self.close_guard_done {
+            self.close_guard_done = true;
+            app_log("fermeture demandée dans ui()");
+            self.stop_hidden_worker(true);
+            let _ = self.freeze_live_frame();
         }
     }
 
@@ -4908,6 +5065,7 @@ fn menu_item(ui: &mut egui::Ui, label: &str, selected: bool, enabled: bool) -> b
 impl eframe::App for App {
     #[cfg(not(windows))]
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        app_log("on_exit");
         if !self.freeze_live_frame() {
             self.stop_live();
         }
@@ -4916,6 +5074,7 @@ impl eframe::App for App {
 
     #[cfg(windows)]
     fn on_exit(&mut self) {
+        app_log("on_exit");
         if !self.freeze_live_frame() {
             self.stop_live();
         }
@@ -4923,6 +5082,7 @@ impl eframe::App for App {
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.handle_close_request(ui.ctx());
         self.handle_window_visibility(ui.ctx());
         self.tick_live(ui.ctx());
         egui::Panel::left("sidebar")

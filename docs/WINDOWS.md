@@ -5,7 +5,7 @@
 Le binaire Windows embarque :
 
 - une icône multi-résolutions (`resources/berserker-rgb.ico`) ;
-- les informations de version `1.1.6.0` (produit, société, copyright) ;
+- les informations de version `1.1.7.0` (produit, société, copyright) ;
 - un manifeste (`resources/berserker-rgb.manifest`) : `asInvoker`,
   DPI `PerMonitorV2`, support Windows 7–11, chemins longs, page de code UTF-8.
 

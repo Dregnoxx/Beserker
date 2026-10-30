@@ -3,7 +3,7 @@
   <h1>Berserker RGB</h1>
   <p><strong>Contrôle RGB per-touche et configuration du clavier Berserker BYGG.</strong></p>
   <p>
-    <img alt="Version" src="https://img.shields.io/badge/version-1.1.6--alpha-orange">
+    <img alt="Version" src="https://img.shields.io/badge/version-1.1.7--alpha-orange">
     <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
     <img alt="Linux" src="https://img.shields.io/badge/Linux-x86__64-FCC624?logo=linux&logoColor=black">
     <img alt="Rust" src="https://img.shields.io/badge/Rust-1.95%2B-000000?logo=rust">
@@ -17,7 +17,7 @@
   </p>
 </div>
 
-> **Statut : alpha (v1.1.6).** Application testée sur le clavier Berserker BYGG
+> **Statut : alpha (v1.1.7).** Application testée sur le clavier Berserker BYGG
 > `320F:5041` (EVision V2, 126 zones LED) sous Windows 10/11 x86_64. Le binaire
 > Linux x86_64 est fourni compilé ; valider l'accès hidraw et le rendu sur votre
 > distribution.
@@ -64,9 +64,11 @@ clavier reste intact.
 - Jusqu'à **8 calques**, chacun limité à une sélection de touches, avec
   couleur, vitesse, sens, mélange (Ajouter/Remplacer), ordre et activation.
 - Les calques sont enregistrés avec le profil et rejoués au démarrage.
-- Fenêtre réduite ou application fermée : la dernière image des calques est
-  figée en couleurs per-touche sur le clavier. Les animations reprennent au
-  lancement suivant ; les calques restent enregistrés.
+- Fenêtre réduite ou masquée : un rendu d'arrière-plan continue d'envoyer les
+  frames directes au clavier ; l'animation des calques ne s'arrête pas avec
+  les passes graphiques.
+- Application fermée : la dernière image est figée en couleurs per-touche ;
+  les calques restent enregistrés et sont rejoués au lancement suivant.
 - Vitesse réglable de 0 (lent) à 4 (rapide) ; désactivée pour les modes qui
   l'ignorent (Statique, Balayage, Radiation, Personnalisé).
 
@@ -94,7 +96,7 @@ configuration est créé avant la première modification.
 
 - Interface native egui, une seule fenêtre, sans console.
 - Windows : rendu Direct3D 12 (GPU ou WARP), CRT statique, aucun runtime à
-  installer. Icône, version de fichier 1.1.6.0 et manifeste embarqués
+  installer. Icône, version de fichier 1.1.7.0 et manifeste embarqués
   (PerMonitorV2, asInvoker, long paths).
 - Linux : rendu OpenGL 2.0 via X11/XWayland.
 - CLI de diagnostic et de configuration pour les scripts.
@@ -190,12 +192,14 @@ Windows :
   profiles\profil_N.layers    calques d'effets PC
   profiles\actif.cfg          profil actif
   backups\                    sauvegardes manuelles et automatiques
+  berserker-rgb.log           journal de diagnostic
 ```
 
 Linux :
 
 ```text
 ${XDG_DATA_HOME:-~/.local/share}/berserker-rgb/
+  berserker-rgb.log           journal de diagnostic
 ```
 
 Aucune donnée n'est envoyée sur le réseau.
@@ -271,9 +275,12 @@ packaging/         règle udev et lanceur Linux
 ## Limites connues
 
 - Application en alpha ; le clavier cible est le `320F:5041`.
-- Les calques d'effets sont animés par l'application sur le PC. À la réduction
-  ou à la fermeture, la dernière image est figée en couleurs per-touche ; le
-  rendu animé reprend au lancement suivant.
+- Les calques d'effets sont animés par l'application sur le PC. En fenêtre
+  réduite, un thread d'arrière-plan maintient l'animation ; à la fermeture, la
+  dernière image est figée en couleurs per-touche et le rendu animé reprend au
+  lancement suivant.
+- En arrière-plan, les calques continuent d'animer ; une éventuelle base
+  d'effet firmware est figée pendant la réduction.
 - Les effets réactifs aux frappes ne sont pas disponibles : l'application ne
   capture pas les touches au niveau système.
 - Les macros sont une bibliothèque de fichiers ; il n'y a pas d'upload vers le
