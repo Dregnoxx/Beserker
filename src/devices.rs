@@ -145,10 +145,18 @@ fn classify_with_product(
         return Some(DeviceKind::QmkRawHid);
     }
     if vid == EVISION_VID {
-        if pid == BERSERKER_TKL_PID
-            && (usage_page == 0 || (usage_page == protocol::USAGE_PAGE && usage == protocol::USAGE))
-        {
-            return Some(DeviceKind::EvisionTkl);
+        if pid == BERSERKER_TKL_PID {
+            // Une même interface clavier expose souvent une collection
+            // « clavier » standard en plus de la collection vendor EVision.
+            // Seule la collection vendor (ou un descripteur absent) représente
+            // le Berserker d'usine ; l'autre est ignorée.
+            return if usage_page == 0
+                || (usage_page == protocol::USAGE_PAGE && usage == protocol::USAGE)
+            {
+                Some(DeviceKind::EvisionTkl)
+            } else {
+                None
+            };
         }
         return Some(DeviceKind::EvisionOther);
     }
@@ -319,6 +327,10 @@ mod tests {
         assert_eq!(
             classify(EVISION_VID, 0x1234, protocol::USAGE_PAGE, protocol::USAGE),
             Some(DeviceKind::EvisionOther)
+        );
+        assert_eq!(
+            classify(EVISION_VID, BERSERKER_TKL_PID, 0x0006, 0x0001),
+            None
         );
         assert_eq!(
             classify(SONIX_VID, 0x7040, 0, 0),
