@@ -116,7 +116,10 @@ fn is_qmk_product(product: Option<&str>) -> bool {
     product
         .map(|value| {
             let lower = value.to_ascii_lowercase();
-            lower.contains("qmk") || lower.contains("via") || lower.contains("vial")
+            lower.contains("qmk")
+                || lower
+                    .split(|c: char| !c.is_ascii_alphanumeric())
+                    .any(|word| word == "via" || word == "vial")
         })
         .unwrap_or(false)
 }
@@ -136,9 +139,8 @@ fn classify_with_product(
     if vid == SONIX_VID && SONIX_BOOTLOADER_PIDS.iter().any(|(p, _)| *p == pid) {
         return Some(DeviceKind::SonixBootloader);
     }
-    if vid == QMK_VID
-        || (usage_page == QMK_RAW_USAGE_PAGE && usage == QMK_RAW_USAGE)
-        || is_qmk_product(product)
+    let qmk_product = is_qmk_product(product) && matches!(vid, EVISION_VID | SONIX_VID | QMK_VID);
+    if vid == QMK_VID || (usage_page == QMK_RAW_USAGE_PAGE && usage == QMK_RAW_USAGE) || qmk_product
     {
         return Some(DeviceKind::QmkRawHid);
     }
@@ -349,8 +351,18 @@ mod tests {
             Some(DeviceKind::QmkRawHid)
         );
         assert_eq!(
-            classify_with_product(0x1234, 0x5678, 0x0006, 0x0001, Some("Berserker VIA")),
+            classify_with_product(
+                EVISION_VID,
+                BERSERKER_TKL_PID,
+                0x0006,
+                0x0001,
+                Some("Berserker VIA")
+            ),
             Some(DeviceKind::QmkRawHid)
+        );
+        assert_eq!(
+            classify_with_product(0x1102, 0x0001, 0x0006, 0x0001, Some("VIA HD Audio")),
+            None
         );
     }
 }
