@@ -1,0 +1,2 @@
+# Berserker 320F:5041 - accès hidraw pour l'utilisateur connecté
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", ATTRS{idProduct}=="5041", TAG+="uaccess", MODE="0660"

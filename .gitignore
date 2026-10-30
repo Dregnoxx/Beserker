@@ -1,0 +1,22 @@
+# Build
+/target/
+/dist/
+
+# Sorties de release
+*.exe
+*.pdb
+*.AppImage
+*.tar.gz
+*.zip
+
+# Données locales et profils clavier
+/backups/
+*.bin
+*.state
+*.layers
+*.cfg
+
+# Système
+.DS_Store
+Thumbs.db
+desktop.ini
