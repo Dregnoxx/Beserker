@@ -978,6 +978,24 @@ fn cli_caps() -> Result<()> {
     Ok(())
 }
 
+fn cli_devices() -> Result<()> {
+    let devices = devices::scan();
+    if devices.is_empty() {
+        println!("Aucun appareil HID compatible détecté.");
+    }
+    for device in &devices {
+        println!("{}", device.summary());
+    }
+    let diagnostics = devices::linux_diagnostics();
+    if !diagnostics.is_empty() {
+        println!("--- nœuds hidraw ---");
+        for line in diagnostics {
+            println!("{line}");
+        }
+    }
+    Ok(())
+}
+
 fn cli_qmk_open() -> Result<qmk::QmkLighting> {
     let devices = devices::scan();
     let device = devices
@@ -1443,6 +1461,14 @@ fn main() {
         attach_parent_console();
     }
     let args: Vec<String> = std::env::args().collect();
+
+    if args.iter().any(|a| a == "--devices") {
+        if let Err(e) = cli_devices() {
+            eprintln!("Erreur: {e:#}");
+            std::process::exit(1);
+        }
+        return;
+    }
 
     if args.iter().any(|a| a == "--qmk-state") {
         if let Err(e) = cli_qmk_state() {
@@ -2016,6 +2042,10 @@ impl App {
 
     fn qmk_active(&self) -> bool {
         self.controller.is_none() && self.qmk.is_some()
+    }
+
+    fn qmk_visible(&self) -> bool {
+        self.qmk_active() || (self.controller.is_none() && self.qmk_present())
     }
 
     fn snapshot(&self) -> ProfileSnapshot {
@@ -3228,7 +3258,7 @@ impl App {
         ui.label(RichText::new("PROFIL").size(9.5).strong().color(MUTED));
         ui.add_space(2.0);
 
-        let profiles_enabled = self.controller.is_some() || self.qmk.is_none();
+        let profiles_enabled = self.controller.is_some() || !self.qmk_present();
         let mut new_profile = self.profile;
         ui.add_enabled_ui(profiles_enabled, |ui| {
             egui::ComboBox::from_id_salt("profile_combo")
@@ -3279,7 +3309,7 @@ impl App {
             .inner_margin(egui::Margin::symmetric(10, 8))
             .show(ui, |ui| {
                 ui.label(
-                    RichText::new(if self.qmk_active() {
+                    RichText::new(if self.qmk_visible() {
                         "QMK/VIA".to_string()
                     } else {
                         format!("Profil {}", self.profile + 1)
@@ -3288,7 +3318,7 @@ impl App {
                     .color(Color32::WHITE),
                 );
                 ui.label(
-                    RichText::new(if self.qmk_active() {
+                    RichText::new(if self.qmk_visible() {
                         "Éclairage global QMK/VIA"
                     } else {
                         "Jeu de couleurs EVision"
@@ -3299,7 +3329,7 @@ impl App {
             });
         ui.add_space(8.0);
         ui.label(
-            RichText::new(if self.qmk_active() {
+            RichText::new(if self.qmk_visible() {
                 "Berserker BYGG TKL · QMK/VIA"
             } else {
                 "Berserker BYGG TKL · 126 zones"
@@ -4182,6 +4212,72 @@ impl App {
     /// Même panneau que l'éclairage EVision, branché sur le protocole VIA :
     /// effet, luminosité, vitesse, couleur et sauvegarde EEPROM. Le per-touche
     /// n'existe pas dans le firmware QMK/VIA et reste donc absent.
+    fn qmk_connection_panel(&mut self, ui: &mut egui::Ui) {
+        {
+            let visuals = ui.visuals_mut();
+            visuals.override_text_color = Some(TEXT);
+            visuals.widgets.inactive.bg_fill = Color32::from_rgb(58, 58, 58);
+            visuals.widgets.inactive.weak_bg_fill = Color32::from_rgb(58, 58, 58);
+            visuals.widgets.hovered.bg_fill = Color32::from_rgb(74, 74, 74);
+            visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(74, 74, 74);
+            visuals.widgets.active.bg_fill = Color32::from_rgb(88, 88, 88);
+            visuals.widgets.active.weak_bg_fill = Color32::from_rgb(88, 88, 88);
+            visuals.widgets.inactive.fg_stroke.color = Color32::WHITE;
+            visuals.widgets.hovered.fg_stroke.color = Color32::WHITE;
+            visuals.widgets.active.fg_stroke.color = Color32::WHITE;
+            visuals.selection.bg_fill = ACCENT;
+            visuals.selection.stroke.color = Color32::BLACK;
+            visuals.widgets.inactive.corner_radius = CornerRadius::same(4);
+            visuals.widgets.hovered.corner_radius = CornerRadius::same(4);
+            visuals.widgets.active.corner_radius = CornerRadius::same(4);
+        }
+
+        ui.label(
+            RichText::new("Éclairage QMK/VIA")
+                .size(13.0)
+                .strong()
+                .color(Color32::WHITE),
+        );
+        ui.label(
+            RichText::new(
+                "Clavier QMK/VIA détecté, mais l'interface VIA n'est pas ouverte. L'éclairage ne peut pas être modifié tant que la connexion hidraw échoue.",
+            )
+            .size(11.0)
+            .color(MUTED),
+        );
+
+        if !self.qmk_status.is_empty() {
+            let lower = self.qmk_status.to_lowercase();
+            let error =
+                lower.contains("refus") || lower.contains("impossible") || lower.contains("erreur");
+            ui.label(RichText::new(&self.qmk_status).size(10.5).color(if error {
+                ERR
+            } else {
+                MUTED
+            }));
+        }
+
+        ui.add_space(4.0);
+        ui.label(
+            RichText::new(
+                "Linux : installer la règle udev fournie, recharger udev puis rebrancher le clavier. Diagnostic détaillé : berserker-rgb --devices",
+            )
+            .size(10.0)
+            .color(Color32::from_rgb(190, 190, 190)),
+        );
+        ui.horizontal(|ui| {
+            if ui.button("Connecter l'éclairage QMK").clicked() {
+                self.connect_qmk();
+            }
+            if ui.button("Ouvrir Claviers").clicked() {
+                self.page = Page::Devices;
+            }
+            if ui.button("Reconnecter").clicked() {
+                self.reconnect();
+            }
+        });
+    }
+
     fn qmk_lighting_panel(&mut self, ui: &mut egui::Ui) {
         {
             let visuals = ui.visuals_mut();
@@ -5940,26 +6036,18 @@ impl App {
             .show(ui, |ui| {
                 if qmk_active {
                     self.qmk_lighting_panel(ui);
+                } else if self.controller.is_none() && self.qmk_present() {
+                    self.qmk_connection_panel(ui);
                 } else {
                     self.lighting_panel(ui);
                 }
             });
 
-        if !qmk_active && self.qmk.is_none() && self.qmk_present() && !self.qmk_status.is_empty() {
-            ui.add_space(6.0);
-            let lower = self.qmk_status.to_lowercase();
-            let error = lower.contains("refus") || lower.contains("impossible");
-            ui.label(RichText::new(&self.qmk_status).size(10.0).color(if error {
-                ERR
-            } else {
-                MUTED
-            }));
-        }
-
+        let qmk_visible = qmk_active || (self.controller.is_none() && self.qmk_present());
         ui.add_space(8.0);
         ui.horizontal(|ui| {
             ui.label(
-                RichText::new(if qmk_active {
+                RichText::new(if qmk_visible {
                     "QMK/VIA · configuration uniquement · aucun flash firmware"
                 } else {
                     "EVision V2 · configuration uniquement · aucun flash firmware"
@@ -5969,7 +6057,7 @@ impl App {
             );
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(
-                    RichText::new(if qmk_active {
+                    RichText::new(if qmk_visible {
                         "Berserker · 320F:5042"
                     } else {
                         "Berserker · 320F:5041"

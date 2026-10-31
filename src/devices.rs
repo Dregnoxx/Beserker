@@ -8,6 +8,9 @@ use crate::protocol;
 
 pub const EVISION_VID: u16 = protocol::VENDOR_ID;
 pub const BERSERKER_TKL_PID: u16 = protocol::PRODUCT_ID;
+/// PID du firmware QMK/VIA flashé sur le Berserker.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub const QMK_PID: u16 = 0x5042;
 pub const SONIX_VID: u16 = 0x0C45;
 pub const QMK_VID: u16 = 0xFEED;
 pub const QMK_RAW_USAGE_PAGE: u16 = 0xFF60;
@@ -164,6 +167,25 @@ fn classify_with_product(
 }
 
 fn push_unique(devices: &mut Vec<DeviceInfo>, device: DeviceInfo) {
+    // Un clavier QMK expose plusieurs collections hidraw (clavier, consumer,
+    // raw VIA) sur le même VID/PID. Une seule fiche QMK suffit ; l'ouverture
+    // VIA sonde ensuite les chemins pour trouver la bonne interface.
+    if device.kind == DeviceKind::QmkRawHid {
+        if let Some(existing) = devices.iter_mut().find(|existing| {
+            existing.kind == DeviceKind::QmkRawHid
+                && existing.vid == device.vid
+                && existing.pid == device.pid
+        }) {
+            // Préférer le nœud dont le descripteur identifie réellement
+            // l'interface brute FF60:0061 ; les autres collections du même
+            // clavier ne sont que des candidats de secours.
+            if existing.usage_page != QMK_RAW_USAGE_PAGE && device.usage_page == QMK_RAW_USAGE_PAGE
+            {
+                *existing = device;
+            }
+            return;
+        }
+    }
     if devices.iter().any(|existing| {
         existing.vid == device.vid
             && existing.pid == device.pid
@@ -227,7 +249,7 @@ pub fn scan() -> Vec<DeviceInfo> {
     devices
 }
 
-#[cfg(target_os = "linux")]
+#[allow(dead_code)]
 fn descriptor_has_usage(bytes: &[u8], page: u16, usage: u16) -> bool {
     let page_bytes = [0x06, (page & 0xFF) as u8, (page >> 8) as u8];
     let usage_bytes = [0x09, (usage & 0xFF) as u8];
@@ -269,7 +291,7 @@ pub fn scan() -> Vec<DeviceInfo> {
         }
         let descriptor =
             fs::read(entry.path().join("device/report_descriptor")).unwrap_or_default();
-        let (usage_page, usage) =
+        let (mut usage_page, mut usage) =
             if descriptor_has_usage(&descriptor, protocol::USAGE_PAGE, protocol::USAGE) {
                 (protocol::USAGE_PAGE, protocol::USAGE)
             } else if descriptor_has_usage(&descriptor, QMK_RAW_USAGE_PAGE, QMK_RAW_USAGE) {
@@ -277,8 +299,16 @@ pub fn scan() -> Vec<DeviceInfo> {
             } else {
                 (0, 0)
             };
-        let Some(kind) = classify_with_product(vid, pid, usage_page, usage, product.as_deref())
-        else {
+        let mut kind = classify_with_product(vid, pid, usage_page, usage, product.as_deref());
+        // Sur Linux, le descripteur peut être illisible ou présenté
+        // différemment. Le PID 5042 est le firmware QMK/VIA du Berserker :
+        // on garde une fiche QMK et l'ouverture sondera les nœuds hidraw.
+        if kind == Some(DeviceKind::EvisionOther) && vid == EVISION_VID && pid == QMK_PID {
+            kind = Some(DeviceKind::QmkRawHid);
+            usage_page = QMK_RAW_USAGE_PAGE;
+            usage = QMK_RAW_USAGE;
+        }
+        let Some(kind) = kind else {
             continue;
         };
         push_unique(
@@ -295,6 +325,110 @@ pub fn scan() -> Vec<DeviceInfo> {
         );
     }
     devices
+}
+
+/// Nœuds hidraw du Berserker QMK/VIA (320F:5042), interface brute en tête.
+/// Sert à sonder plusieurs collections quand le descripteur n'identifie pas
+/// clairement FF60:0061.
+#[cfg(target_os = "linux")]
+pub fn qmk_paths() -> Vec<String> {
+    use std::fs;
+
+    let mut raw = Vec::new();
+    let mut fallback = Vec::new();
+    let Ok(entries) = fs::read_dir("/sys/class/hidraw") else {
+        return raw;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let path = format!("/dev/{}", name.to_string_lossy());
+        let Ok(text) = fs::read_to_string(entry.path().join("device/uevent")) else {
+            continue;
+        };
+        let Some(id) = text.lines().find_map(|line| line.strip_prefix("HID_ID=")) else {
+            continue;
+        };
+        let parts: Vec<&str> = id.split(':').collect();
+        if parts.len() != 3 {
+            continue;
+        }
+        let Ok(vid) = u16::from_str_radix(parts[1].trim_start_matches('0'), 16) else {
+            continue;
+        };
+        let Ok(pid) = u16::from_str_radix(parts[2].trim_start_matches('0'), 16) else {
+            continue;
+        };
+        if vid != EVISION_VID || pid != QMK_PID {
+            continue;
+        }
+        let descriptor =
+            fs::read(entry.path().join("device/report_descriptor")).unwrap_or_default();
+        let target = if descriptor_has_usage(&descriptor, QMK_RAW_USAGE_PAGE, QMK_RAW_USAGE) {
+            &mut raw
+        } else {
+            &mut fallback
+        };
+        if !target.contains(&path) {
+            target.push(path);
+        }
+    }
+    for path in fallback {
+        if !raw.contains(&path) {
+            raw.push(path);
+        }
+    }
+    raw
+}
+
+/// Rapport lisible des nœuds hidraw pour diagnostiquer CachyOS : VID/PID,
+/// nom, descripteur, permissions d'ouverture.
+#[cfg(target_os = "linux")]
+pub fn linux_diagnostics() -> Vec<String> {
+    use std::fs::{self, OpenOptions};
+
+    let mut lines = Vec::new();
+    let Ok(entries) = fs::read_dir("/sys/class/hidraw") else {
+        return vec!["/sys/class/hidraw illisible ou absent".to_string()];
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let path = format!("/dev/{name}");
+        let text = fs::read_to_string(entry.path().join("device/uevent")).unwrap_or_default();
+        let field = |key: &str| {
+            text.lines()
+                .find_map(|line| line.strip_prefix(key))
+                .unwrap_or("-")
+                .trim()
+                .to_string()
+        };
+        let descriptor =
+            fs::read(entry.path().join("device/report_descriptor")).unwrap_or_default();
+        let access = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map(|_| "OK".to_string())
+            .unwrap_or_else(|error| error.to_string());
+        lines.push(format!(
+            "{name}: HID_ID={} HID_NAME={} HID_PHYS={} descripteur={} o · evision={} · qmk={} · ouverture={}",
+            field("HID_ID="),
+            field("HID_NAME="),
+            field("HID_PHYS="),
+            descriptor.len(),
+            descriptor_has_usage(&descriptor, protocol::USAGE_PAGE, protocol::USAGE),
+            descriptor_has_usage(&descriptor, QMK_RAW_USAGE_PAGE, QMK_RAW_USAGE),
+            access
+        ));
+    }
+    if lines.is_empty() {
+        lines.push("aucun nœud hidraw dans /sys/class/hidraw (module hidraw ?)".to_string());
+    }
+    lines
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn linux_diagnostics() -> Vec<String> {
+    Vec::new()
 }
 
 #[cfg(not(any(windows, target_os = "linux")))]
@@ -361,6 +495,89 @@ mod tests {
             Some(DeviceKind::QmkRawHid)
         );
         assert_eq!(classify(0x1234, 0x5678, 0x0006, 0x0001), None);
+    }
+
+    #[test]
+    fn descripteur_qmk_reconnu() {
+        let qmk = [
+            0x06, 0x60, 0xFF, 0x09, 0x61, 0xA1, 0x01, 0x09, 0x62, 0x15, 0x00, 0x25, 0xFF, 0x75,
+            0x08, 0x95, 0x20, 0x81, 0x02, 0xC0,
+        ];
+        assert!(descriptor_has_usage(
+            &qmk,
+            QMK_RAW_USAGE_PAGE,
+            QMK_RAW_USAGE
+        ));
+        assert!(!descriptor_has_usage(
+            &qmk,
+            protocol::USAGE_PAGE,
+            protocol::USAGE
+        ));
+        assert!(!descriptor_has_usage(
+            &[],
+            QMK_RAW_USAGE_PAGE,
+            QMK_RAW_USAGE
+        ));
+    }
+
+    #[test]
+    fn une_seule_fiche_qmk_et_preference_interface_brute() {
+        let mut devices = Vec::new();
+        push_unique(
+            &mut devices,
+            DeviceInfo {
+                vid: EVISION_VID,
+                pid: QMK_PID,
+                usage_page: QMK_RAW_USAGE_PAGE,
+                usage: QMK_RAW_USAGE,
+                product: Some("Berserker".to_string()),
+                path: "/dev/hidraw0".to_string(),
+                kind: DeviceKind::QmkRawHid,
+            },
+        );
+        push_unique(
+            &mut devices,
+            DeviceInfo {
+                vid: EVISION_VID,
+                pid: QMK_PID,
+                usage_page: 0x0001,
+                usage: 0x0006,
+                product: Some("Berserker".to_string()),
+                path: "/dev/hidraw1".to_string(),
+                kind: DeviceKind::QmkRawHid,
+            },
+        );
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].path, "/dev/hidraw0");
+
+        // Le nœud brut arrive après : il remplace le candidat clavier.
+        let mut devices = Vec::new();
+        push_unique(
+            &mut devices,
+            DeviceInfo {
+                vid: EVISION_VID,
+                pid: QMK_PID,
+                usage_page: 0x0001,
+                usage: 0x0006,
+                product: Some("Berserker".to_string()),
+                path: "/dev/hidraw1".to_string(),
+                kind: DeviceKind::QmkRawHid,
+            },
+        );
+        push_unique(
+            &mut devices,
+            DeviceInfo {
+                vid: EVISION_VID,
+                pid: QMK_PID,
+                usage_page: QMK_RAW_USAGE_PAGE,
+                usage: QMK_RAW_USAGE,
+                product: Some("Berserker".to_string()),
+                path: "/dev/hidraw0".to_string(),
+                kind: DeviceKind::QmkRawHid,
+            },
+        );
+        assert_eq!(devices.len(), 1);
+        assert_eq!(devices[0].path, "/dev/hidraw0");
     }
 
     #[test]

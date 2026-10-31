@@ -3,6 +3,22 @@
 Toutes les versions sont des versions alpha. Les binaires correspondants sont
 publiés dans les releases GitHub.
 
+## 1.3.5 — 2026-10-31
+
+### Corrigé
+
+- Détection Linux QMK/VIA : le PID 320F:5042 produit désormais une fiche QMK
+  même si le descripteur HID n'expose pas FF60:0061. L'ouverture sonde tous
+  les nœuds hidraw du clavier et retient celui qui répond au protocole VIA.
+- Panneau Éclairage dédié quand le clavier QMK/VIA est détecté mais que
+  l'interface hidraw ne peut pas être ouverte (permissions, udev).
+- Règle udev limitée explicitement à `KERNEL=="hidraw*"` et VID 320F.
+
+### Ajouté
+
+- `--devices` : diagnostic Linux des interfaces et nœuds hidraw (HID_ID,
+  HID_NAME, usages EVision/QMK, résultat d'ouverture).
+
 ## 1.3.4 — 2026-10-31
 
 ### Corrigé

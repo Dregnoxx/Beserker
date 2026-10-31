@@ -82,14 +82,37 @@ impl QmkLighting {
         if device.kind != DeviceKind::QmkRawHid {
             return Err(anyhow!("interface QMK/VIA attendue"));
         }
-        if device.path.is_empty() {
-            return Err(anyhow!("chemin hidraw QMK/VIA absent"));
+        // L'interface brute (descripteur FF60:0061) est prioritaire ; les
+        // autres collections 320F:5042 ne servent que de secours.
+        let mut candidates = crate::devices::qmk_paths();
+        if !device.path.is_empty() && !candidates.contains(&device.path) {
+            candidates.push(device.path.clone());
         }
-        let dev = crate::linux_hid::LinuxHid::open(Path::new(&device.path))
-            .map_err(|e| anyhow!("ouverture QMK/VIA : {e:#}"))?;
-        let mut lighting = Self { dev, protocol: 0 };
-        lighting.protocol = lighting.read_protocol()?;
-        Ok(lighting)
+        if candidates.is_empty() {
+            return Err(anyhow!(
+                "aucun nœud hidraw 320F:5042 trouvé (clavier branché ?)"
+            ));
+        }
+        let mut errors = Vec::new();
+        for path in candidates {
+            match crate::linux_hid::LinuxHid::open(Path::new(&path)) {
+                Ok(dev) => {
+                    let mut lighting = Self { dev, protocol: 0 };
+                    match lighting.read_protocol() {
+                        Ok(protocol) => {
+                            lighting.protocol = protocol;
+                            return Ok(lighting);
+                        }
+                        Err(error) => errors.push(format!("{path}: {error:#}")),
+                    }
+                }
+                Err(error) => errors.push(format!("{path}: {error:#}")),
+            }
+        }
+        Err(anyhow!(
+            "aucune interface QMK/VIA accessible : {}",
+            errors.join(" | ")
+        ))
     }
 
     pub fn protocol(&self) -> u16 {

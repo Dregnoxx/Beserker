@@ -1,2 +1,2 @@
-# Berserker / DesignedbyGG 320F (EVision 5041, QMK/VIA 5042) — accès hidraw
-SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", TAG+="uaccess", MODE="0660"
+# Berserker / DesignedbyGG 320F — EVision 5041 et QMK/VIA 5042
+KERNEL=="hidraw*", SUBSYSTEM=="hidraw", ATTRS{idVendor}=="320f", TAG+="uaccess", MODE="0660"
