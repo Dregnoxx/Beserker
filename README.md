@@ -10,7 +10,7 @@
     <img alt="Licence" src="https://img.shields.io/badge/licence-MIT-green">
   </p>
   <p>
-    <a href="../../releases/latest">Télécharger</a> ·
+    <a href="../../releases">Télécharger</a> ·
     <a href="docs/PROTOCOL.md">Protocole EVision V2</a> ·
     <a href="CHANGELOG.md">Changelog</a> ·
     <a href="LICENSE">Licence MIT</a>
@@ -166,11 +166,19 @@ seule.
 ## Téléchargement et lancement
 
 Les binaires sont publiés dans l'onglet
-[**Releases**](../../releases/latest) du dépôt.
+[**Releases**](../../releases) du dépôt. Chaque version publie cinq fichiers :
+
+| Fichier | Contenu |
+| --- | --- |
+| `berserker-rgb.exe` | exécutable Windows x86_64 autonome |
+| `Berserker-RGB-x86_64.AppImage` | application Linux x86_64 empaquetée |
+| `berserker-rgb-linux-x86_64.tar.gz` | binaire Linux + lanceur + règle udev + README-LINUX |
+| `90-berserker-rgb.rules` | règle udev `hidraw` pour `320F:5041` et `320F:5042` |
+| `SHA256SUMS.txt` | empreintes SHA-256 des quatre fichiers |
 
 ### Windows
 
-1. Télécharger `berserker-rgb.exe` (ou le paquet `.zip`).
+1. Télécharger `berserker-rgb.exe` (et `SHA256SUMS.txt` pour vérifier).
 2. Lancer l'exécutable. Une seule fenêtre s'ouvre, sans console.
 3. Si le clavier n'est pas détecté, fermer tout autre logiciel RGB puis
    cliquer sur **Reconnecter**.
@@ -382,5 +390,5 @@ V2 configuration commands — it never flashes or modifies the keyboard firmware
 SonixFlasherC is a separate manufacturer tool and is not included or launched
 by this app.
 
-Download binaries from the [Releases](../../releases/latest) page. Build with
+Download binaries from the [Releases](../../releases) page. Build with
 Rust 1.95+ using `cargo build --release`. MIT licensed.
