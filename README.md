@@ -2,6 +2,7 @@
   <img src="docs/icon.png" alt="Berserker RGB" width="96">
   <h1>Berserker RGB</h1>
   <p><strong>Contrôle RGB per-touche et configuration du clavier Berserker BYGG.</strong></p>
+  <p><strong>⚠️Vibe coded app⚠️</strong></p>
   <p>
     <img alt="Version" src="https://img.shields.io/badge/version-1.3.5--alpha-orange">
     <img alt="Windows" src="https://img.shields.io/badge/Windows-10%2F11-0078D6?logo=windows&logoColor=white">
